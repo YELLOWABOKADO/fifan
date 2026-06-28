@@ -290,7 +290,7 @@
     <div class="actions">
       <button class="btn unlock" id="unlockTab" data-act="unlockTab" hidden>Разблокировать ввод</button>
       <button class="btn savePred" id="savePred" data-act="savePred" hidden>Сохранить прогноз</button>
-      <button class="btn eyeBtn" id="scoreSpoiler" data-act="toggleScores" title="Скрыть счета" aria-label="Скрыть счета"><span class="eyeIcon"></span></button>
+      <button class="btn eyeBtn" id="scoreSpoiler" data-act="toggleScores" title="Показать счета" aria-label="Показать счета"><span class="eyeIcon"></span></button>
       <span class="cloudStatus" id="cloudStatus">облако: —</span>
       <button class="btn danger" data-act="reset">Сброс</button>
     </div>
@@ -455,7 +455,10 @@ function persistUnlocked(){
   try{ sessionStorage.setItem(UNLOCK_KEY, JSON.stringify(unlocked)); }catch(e){}
 }
 function loadScoreSpoiler(){
-  try{ return localStorage.getItem(SCORE_SPOILER_KEY)==="1"; }catch(e){ return false; }
+  try{
+    var saved=localStorage.getItem(SCORE_SPOILER_KEY);
+    return saved==null ? true : saved==="1";
+  }catch(e){ return true; }
 }
 function persistScoreSpoiler(){
   try{ localStorage.setItem(SCORE_SPOILER_KEY, scoresHidden?"1":"0"); }catch(e){}
