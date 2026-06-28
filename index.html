@@ -115,6 +115,9 @@
   .btn:hover{color:var(--ink); border-color:var(--faint)}
   .btn.unlock.on{color:#06140F; background:var(--gold); border-color:var(--gold)}
   .btn.apiToggle.on{color:#06140F; background:var(--F); border-color:var(--F)}
+  .btn.apiToggle.live::after{content:""; display:inline-block; width:7px; height:7px; border-radius:50%; background:#ff4d4d; margin-left:7px; vertical-align:middle; box-shadow:0 0 6px #ff4d4d; animation:liveblink 1.1s ease-in-out infinite}
+  .liveDot{display:inline-block; width:8px; height:8px; border-radius:50%; background:#ff4d4d; margin-right:6px; vertical-align:middle; box-shadow:0 0 6px #ff4d4d; animation:liveblink 1.1s ease-in-out infinite}
+  @keyframes liveblink{0%,100%{opacity:1} 50%{opacity:.2}}
   .btn.danger:hover{color:#ff8b8b; border-color:#5a2a2a}
   .eyeBtn{width:38px; height:38px; padding:0; display:grid; place-items:center}
   .eyeIcon{
@@ -436,10 +439,20 @@ var AUTO_CLOUD_PULL_MS = 15000;
 var API_BASE = "https://www.thesportsdb.com/api/v1/json/123";
 var API_WC_LEAGUE_ID = "4429";       // FIFA World Cup
 var API_SEASON = "2026";             // сезон ЧМ-2026
-var API_POLL_MS = 45000;             // опрос во время матчей
+var API_POLL_MS = 180000;            // опрос во время матчей (~3 мин — бережём лимит API-Football)
 var API_DUE_LEAD_MIN = 10;           // начинаем опрос за 10 мин до старта
 var API_SEASON_TTL_MS = 25000;       // кэш ответа eventsseason
 var API_TOGGLE_KEY = "wc2026-duel-apiauto-v1";
+
+/* --- основной источник: API-Football (живой счёт + пенальти) --- */
+/* ключ виден в коде публичного сайта. Чтобы спрятать — нужен прокси (Cloudflare Worker). */
+/* Пусто (AF_KEY="") -> работаем только на TheSportsDB. */
+var AF_KEY = "1afaeb2ee0d16735afc97f57985a08b6";
+var AF_BASE = "https://v3.football.api-sports.io";
+var AF_LEAGUE_ID = 1;                 // World Cup в API-Football
+var AF_SEASON = 2026;
+var AF_FIX_TTL_MS = 21600000;         // расписание AF кэшируем 6 ч
+var AF_COOLDOWN_MS = 1800000;         // при ошибке/лимите AF — пауза 30 мин, работаем на резерве
 var API_TEAM_ALIASES = {
   RSA:["south africa"], CAN:["canada"], GER:["germany"], PAR:["paraguay"],
   NED:["netherlands","holland"], MAR:["morocco"], BRA:["brazil"], JPN:["japan"],
@@ -667,7 +680,7 @@ function renderHint(){
   var lockNote = isLockableBranch(state.view) && !isUnlocked(state.view) ? ' <b>Ввод заблокирован.</b>' : '';
   if(state.view==="compare") h.innerHTML='Только просмотр поэтапных прогнозов. Цветные плашки — счёт каждого; число справа — +1 за угаданный проход команды.';
   else if(state.view==="compareFull") h.innerHTML='Только просмотр общих прогнозов на весь плей-офф против факта.';
-  else if(state.view==="actual") h.innerHTML='Вводишь <code>реальный счёт</code>. Победители двигаются по фактической сетке.'+lockNote+(apiLastStatus?' · <span style="color:var(--F)">'+escapeHtml(apiLastStatus)+'</span>':'');
+  else if(state.view==="actual") h.innerHTML='Вводишь <code>реальный счёт</code>. Победители двигаются по фактической сетке.'+lockNote+(apiLastStatus?' · '+(apiLive?'<span class="liveDot"></span>':'')+'<span style="color:var(--F)">'+escapeHtml(apiLastStatus)+'</span>':'');
   else if(isFullBranch(state.view)){
     var p=playerKey(state.view);
     h.innerHTML='Полный прогноз игрока <b style="color:var(--'+p+')">'+escapeHtml(state.players[p].name)+'</b>: можно заполнить всю сетку до финала заранее.'+lockNote;
@@ -1259,10 +1272,13 @@ function doAction(act){
 var apiAuto = loadApiAuto();
 var apiPollTimer = null;
 var apiBusy = false;
-var apiFixtureCache = null;   // {ts, events:[]} — расписание с idEvent
-var apiEventCache = {};       // idEvent -> {ts, ev} — свежий статус матча
+var apiFixtureCache = null;   // {ts, events:[]} — расписание с idEvent (TheSportsDB)
+var apiEventCache = {};       // idEvent -> {ts, ev} — свежий статус матча (TheSportsDB)
 var apiMidToEvent = {};       // mid -> idEvent
 var apiLastStatus = "";
+var apiLive = false;          // сейчас идёт хотя бы один матч
+var afFixCache = null;        // расписание API-Football (id+время+команды)
+var afDisabledUntil = 0;      // до этого времени AF не дёргаем (ошибка/лимит)
 
 var API_FIXTURE_TTL_MS = 600000;     // расписание кэшируем 10 мин
 var API_EVENT_TTL_MS   = 20000;      // свежий статус матча — 20 сек
@@ -1355,28 +1371,31 @@ function apiKickoffMs(ev){
   var ms=Date.parse(t);
   return isNaN(ms)?NaN:ms;
 }
-// ничью по пенальти TheSportsDB надёжно не отдаёт — оставляем выбор хосту
-function apiPenaltyAdv(){ return null; }
-
-function applyApiResult(mid, ev, homeIsTop, finalize){
-  var hs=parseInt(ev.intHomeScore,10), as=parseInt(ev.intAwayScore,10);
-  if(isNaN(hs)||isNaN(as)) return false;
+// единый писатель в «Факт» (используют оба источника)
+function writeActual(mid, topScore, botScore, finalize, adv, statusStr){
+  if(isNaN(topScore)||isNaN(botScore)) return false;
   var existing=state.actuals[mid];
   if(existing && existing.src==="api" && existing.final) return false;          // уже финал из API
   if(existing && hasScore(existing) && existing.src!=="api") return false;       // ручной результат — не трогаем
-  var topScore = homeIsTop?hs:as, botScore = homeIsTop?as:hs;
   var rec=ensureRec("actual", mid);
-  var newHome=String(topScore), newAway=String(botScore);
-  if(rec.home===newHome && rec.away===newAway && rec.src==="api" && rec.final===!!finalize) return false; // без изменений
-  rec.home=newHome; rec.away=newAway; rec.src="api"; rec.final=!!finalize; rec.apiStatus=ev.strStatus||"";
-  rec.adv = (topScore===botScore) ? apiPenaltyAdv() : null;
+  var nh=String(topScore), na=String(botScore);
+  var fadv=(topScore===botScore) ? (adv||null) : null;
+  if(rec.home===nh && rec.away===na && rec.src==="api" && rec.final===!!finalize && (rec.adv||null)===fadv) return false; // без изменений
+  rec.home=nh; rec.away=na; rec.src="api"; rec.final=!!finalize; rec.adv=fadv; rec.apiStatus=statusStr||"";
   return true;
 }
+// TheSportsDB-результат (пенальти отдельным счётом не отдаёт — adv оставляем хосту)
+function applyApiResult(mid, ev, homeIsTop, finalize){
+  var hs=parseInt(ev.intHomeScore,10), as=parseInt(ev.intAwayScore,10);
+  var topScore=homeIsTop?hs:as, botScore=homeIsTop?as:hs;
+  return writeActual(mid, topScore, botScore, finalize, null, ev.strStatus||"");
+}
 
-function apiSetStatus(text){
+function apiSetStatus(text, live){
   apiLastStatus=text||"";
+  apiLive=!!live;
   var b=document.getElementById("apiToggle");
-  if(b) b.title=apiLastStatus||"Автообновление факта из API";
+  if(b){ b.title=apiLastStatus||"Автообновление факта из API"; b.classList.toggle("live", apiLive); }
   if(state.view==="actual") renderHint();   // в строке-подсказке, не в ряду кнопок
 }
 function apiNextLabel(bracket){
@@ -1391,55 +1410,148 @@ function apiNextLabel(bracket){
   return apiAuto ? "API: всё актуально" : "API: выкл";
 }
 
+/* ---------- API-Football (основной источник: live + пенальти) ---------- */
+function afEnabled(){ return !!AF_KEY && Date.now()>=afDisabledUntil; }
+function afCooldown(){ afDisabledUntil=Date.now()+AF_COOLDOWN_MS; }
+var AF_FINISHED={"FT":1,"AET":1,"PEN":1,"AWD":1,"WO":1};
+var AF_LIVE={"1H":1,"HT":1,"2H":1,"ET":1,"BT":1,"P":1,"LIVE":1,"INT":1,"SUSP":1};
+function afShort(it){ return String(it&&it.fixture&&it.fixture.status&&it.fixture.status.short||"").toUpperCase(); }
+function afFetchJson(url){
+  return fetch(url,{headers:{"x-apisports-key":AF_KEY},cache:"no-store"}).then(function(r){
+    if(r.status===429||r.status===403||r.status===499){ afCooldown(); throw new Error("af "+r.status); }
+    if(!r.ok) throw new Error("af "+r.status);
+    return r.json();
+  }).then(function(j){
+    var errs=j&&j.errors; if(errs && (Array.isArray(errs)?errs.length:Object.keys(errs).length)){ afCooldown(); throw new Error("af errors"); }
+    return j;
+  });
+}
+function afMapFix(it){
+  return {
+    id: it.fixture && it.fixture.id,
+    tsMs: (it.fixture && it.fixture.timestamp) ? it.fixture.timestamp*1000 : NaN,
+    homeCode: codeFromApiName(it.teams && it.teams.home && it.teams.home.name),
+    awayCode: codeFromApiName(it.teams && it.teams.away && it.teams.away.name)
+  };
+}
+function afFetchFixtures(){
+  if(afFixCache && Date.now()-afFixCache.ts<AF_FIX_TTL_MS) return Promise.resolve(afFixCache.list);
+  return afFetchJson(AF_BASE+"/fixtures?league="+AF_LEAGUE_ID+"&season="+AF_SEASON).then(function(j){
+    var list=((j&&j.response)||[]).map(afMapFix).filter(function(x){ return x.id&&x.homeCode&&x.awayCode; });
+    if(list.length) afFixCache={ts:Date.now(),list:list};
+    return list;
+  });
+}
+function afFindFix(list, topCode, botCode){
+  for(var i=0;i<list.length;i++){
+    var f=list[i];
+    if(f.homeCode===topCode && f.awayCode===botCode) return {fix:f, homeIsTop:true};
+    if(f.homeCode===botCode && f.awayCode===topCode) return {fix:f, homeIsTop:false};
+  }
+  return null;
+}
+function afFetchByIds(ids){
+  if(!ids.length) return Promise.resolve([]);
+  return afFetchJson(AF_BASE+"/fixtures?ids="+ids.join("-")).then(function(j){ return (j&&j.response)||[]; });
+}
+function afApply(mid, it, homeIsTop){
+  var g=it.goals||{};
+  if(g.home==null || g.away==null) return {st:"none",changed:false};
+  var sh=afShort(it), finished=!!AF_FINISHED[sh], live=!!AF_LIVE[sh];
+  if(!finished && !live) return {st:"none",changed:false};
+  var top=homeIsTop?g.home:g.away, bot=homeIsTop?g.away:g.home, adv=null;
+  if(top===bot && it.score && it.score.penalty){
+    var ph=it.score.penalty.home, pa=it.score.penalty.away;
+    if(ph!=null && pa!=null){ var tp=homeIsTop?ph:pa, bp=homeIsTop?pa:ph; if(tp>bp) adv="top"; else if(bp>tp) adv="bottom"; }
+  }
+  var changed=writeActual(mid, +top, +bot, finished, adv, sh);
+  return {st: finished?"final":"live", changed:changed};
+}
+
+/* собрать матчи-кандидаты (определены команды, не финал, не ручной ввод) */
+function apiTargets(bracket){
+  var t=[];
+  MATCHES.forEach(function(m){
+    var br=bracket[m.id]; if(!br||!br.top||!br.bot) return;
+    var ex=state.actuals[m.id];
+    if(ex && ex.src==="api" && ex.final) return;
+    if(ex && hasScore(ex) && (!ex.src||ex.src!=="api")) return;
+    t.push({mid:m.id, top:br.top, bot:br.bot});
+  });
+  return t;
+}
+
+/* цикл API-Football → {ok, anyData, live, done} */
+function runAfCycle(targets){
+  return afFetchFixtures().then(function(list){
+    var now=Date.now(), inWin=[];
+    targets.forEach(function(t){
+      var f=afFindFix(list, t.top, t.bot); if(!f) return;
+      var ko=isNaN(f.fix.tsMs)?now:f.fix.tsMs;
+      if(now>=ko-API_WIN_AHEAD_MS && now<=ko+API_WIN_AFTER_MS) inWin.push({mid:t.mid, id:f.fix.id, homeIsTop:f.homeIsTop});
+    });
+    if(!inWin.length) return {ok:true, anyData:false, live:0, done:[]};
+    return afFetchByIds(inWin.map(function(x){return x.id;})).then(function(items){
+      var byId={}; items.forEach(function(it){ if(it.fixture) byId[it.fixture.id]=it; });
+      var live=0, done=[], changed=false, any=false;
+      inWin.forEach(function(x){
+        var it=byId[x.id]; if(!it) return;
+        var r=afApply(x.mid, it, x.homeIsTop);
+        if(r.st==="final"){ any=true; if(r.changed){ changed=true; done.push(x.mid); } }
+        else if(r.st==="live"){ any=true; live++; if(r.changed) changed=true; }
+      });
+      if(changed){ persist(); renderTabs(); renderHint(); renderBoard(); }
+      return {ok:true, anyData:any, live:live, done:done};
+    });
+  }).catch(function(e){ console.warn("API-Football недоступен, резерв TheSportsDB:", e&&e.message); return {ok:false}; });
+}
+
+/* резервный цикл TheSportsDB → {ok, anyData, live, done} */
+function runSdbCycle(targets){
+  return fetchApiFixtures().then(function(fix){
+    var now=Date.now(), poll=[];
+    targets.forEach(function(t){
+      var hit=findFixture(fix, t.top, t.bot); if(!hit) return;
+      apiMidToEvent[t.mid]=hit.ev.idEvent;
+      var ko=apiKickoffMs(hit.ev); if(isNaN(ko)) ko=now;
+      if(now>=ko-API_WIN_AHEAD_MS && now<=ko+API_WIN_AFTER_MS) poll.push({mid:t.mid, idEvent:hit.ev.idEvent, homeIsTop:hit.homeIsTop});
+    });
+    if(!poll.length) return {ok:true, anyData:false, live:0, done:[]};
+    return Promise.all(poll.map(function(p){ return fetchApiEvent(p.idEvent).then(function(ev){ return ev?{p:p,ev:ev}:null; }).catch(function(){ return null; }); })).then(function(res){
+      var live=0, done=[], changed=false, any=false;
+      res.forEach(function(r){ if(!r) return;
+        if(apiIsFinished(r.ev) && apiHasScore(r.ev)){ any=true; if(applyApiResult(r.p.mid,r.ev,r.p.homeIsTop,true)){ changed=true; done.push(r.p.mid); } }
+        else if(apiIsLive(r.ev)){ any=true; live++; if(applyApiResult(r.p.mid,r.ev,r.p.homeIsTop,false)) changed=true; }
+      });
+      if(changed){ persist(); renderTabs(); renderHint(); renderBoard(); }
+      return {ok:true, anyData:any, live:live, done:done};
+    });
+  }).catch(function(e){ console.error(e); return {ok:false}; });
+}
+
+function applyCycleStatus(res){
+  if(res.done && res.done.length) toast("Факт обновлён: "+res.done.join(", "));
+  if(res.live>0) apiSetStatus("API: матч идёт — "+res.live+(res.done&&res.done.length?" · готово "+res.done.join(", "):""), true);
+  else if(res.done && res.done.length) apiSetStatus("API: обновлено "+res.done.join(", "), false);
+  else apiSetStatus(apiNextLabel(computeBranch("actual")), false);
+}
+
 function apiPollOnce(force){
   if(!apiAuto && !force) return Promise.resolve();
   if(apiBusy) return Promise.resolve();
   apiBusy=true;
   var bracket=computeBranch("actual");
-  var targets=[];
-  MATCHES.forEach(function(m){
-    var br=bracket[m.id];
-    if(!br||!br.top||!br.bot) return;                          // команды ещё не определены
-    var ex=state.actuals[m.id];
-    if(ex && ex.src==="api" && ex.final) return;               // финал из API
-    if(ex && hasScore(ex) && (!ex.src||ex.src!=="api")) return; // ручной результат
-    targets.push({mid:m.id, top:br.top, bot:br.bot});
-  });
-  if(!targets.length){ apiBusy=false; apiSetStatus(apiNextLabel(bracket)); return Promise.resolve(); }
-  apiSetStatus("API: проверка…");
-  return fetchApiFixtures().then(function(fix){
-    var now=Date.now(), poll=[];
-    targets.forEach(function(t){
-      var hit=findFixture(fix, t.top, t.bot);
-      if(!hit) return;
-      apiMidToEvent[t.mid]=hit.ev.idEvent;
-      var ko=apiKickoffMs(hit.ev); if(isNaN(ko)) ko=now;   // нет времени — считаем «можно опрашивать»
-      if(now>=ko-API_WIN_AHEAD_MS && now<=ko+API_WIN_AFTER_MS){
-        poll.push({mid:t.mid, idEvent:hit.ev.idEvent, homeIsTop:hit.homeIsTop});
-      }
+  var targets=apiTargets(bracket);
+  if(!targets.length){ apiBusy=false; apiSetStatus(apiNextLabel(bracket), false); return Promise.resolve(); }
+  apiSetStatus("API: проверка…", false);
+  var firstTry = afEnabled() ? runAfCycle(targets) : Promise.resolve({ok:false});
+  return firstTry.then(function(af){
+    if(af.ok && af.anyData){ applyCycleStatus(af); return; }      // API-Football дал данные
+    return runSdbCycle(targets).then(function(sdb){                // первый ничего → резерв
+      if(sdb.ok) applyCycleStatus(sdb);
+      else apiSetStatus("API: ошибка", false);
     });
-    if(!poll.length){ apiSetStatus(apiNextLabel(computeBranch("actual"))); return null; }
-    return Promise.all(poll.map(function(p){
-      return fetchApiEvent(p.idEvent).then(function(ev){ return ev?{p:p,ev:ev}:null; }).catch(function(){ return null; });
-    })).then(function(res){
-      var changed=false, live=0, done=[];
-      res.forEach(function(r){
-        if(!r) return;
-        if(apiIsFinished(r.ev) && apiHasScore(r.ev)){
-          if(applyApiResult(r.p.mid, r.ev, r.p.homeIsTop, true)){ changed=true; done.push(r.p.mid); }
-        } else if(apiIsLive(r.ev)){
-          if(applyApiResult(r.p.mid, r.ev, r.p.homeIsTop, false)) changed=true;
-          live++;
-        }
-      });
-      if(changed){ persist(); renderTabs(); renderHint(); renderBoard(); }
-      if(done.length) toast("Факт обновлён: "+done.join(", "));
-      if(live>0) apiSetStatus("API: матч идёт — "+live+(done.length?" · готово "+done.join(", "):""));
-      else if(done.length) apiSetStatus("API: обновлено "+done.join(", "));
-      else apiSetStatus(apiNextLabel(computeBranch("actual")));
-    });
-  }).catch(function(err){
-    console.error(err); apiSetStatus("API: ошибка");
+  }).catch(function(err){ console.error(err); apiSetStatus("API: ошибка", false);
   }).finally(function(){ apiBusy=false; });
 }
 
