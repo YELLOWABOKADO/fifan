@@ -330,6 +330,7 @@ var COLUMNS = [
 
 var SCORING = {advance:1};
 var LOCK_PASSWORDS = {A:"676767", B:"676767", actual:"676767"};
+var RESET_PASSWORD = "067167267";
 var UNLOCK_KEY = "wc2026-duel-unlocked-v1";
 
 /* ===================== СОСТОЯНИЕ ===================== */
@@ -797,6 +798,11 @@ function doAction(act){
   } else if(act==="import"){
     document.getElementById("file").click();
   } else if(act==="reset"){
+    var resetPass=prompt("Пароль для сброса:");
+    if(resetPass!==RESET_PASSWORD){
+      if(resetPass!==null) toast("Неверный пароль");
+      return;
+    }
     if(confirm("Сбросить все прогнозы и результаты?")){
       state=emptyState(); persist();
       try{ history.replaceState(null,"", location.href.split("#")[0]); }catch(_){}
