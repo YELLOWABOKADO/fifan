@@ -88,7 +88,9 @@
 
   /* tabs + actions */
   .controls{display:flex; gap:14px; align-items:center; margin-top:14px; flex-wrap:wrap}
-  .tabs{display:flex; gap:6px; flex-wrap:wrap}
+  .tabs{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+  .tabGroup{display:flex; gap:6px; align-items:center; flex-wrap:wrap}
+  .tabGroup + .tabGroup{margin-left:4px; padding-left:14px; border-left:1px solid rgba(122,166,148,.28)}
   .tab{
     font-family:var(--disp); font-weight:700; letter-spacing:.03em; text-transform:uppercase;
     font-size:11.5px; color:var(--muted); background:var(--panel); border:1px solid var(--line);
@@ -104,7 +106,7 @@
   .tab.on[data-view="compare"]{background:var(--gold); border-color:var(--gold)}
   .tab.on[data-view="compareFull"]{background:var(--gold); border-color:var(--gold)}
   .spacer{flex:1 1 auto}
-  .actions{display:flex; gap:6px; flex-wrap:wrap}
+  .actions{display:flex; gap:6px; align-items:center; flex-wrap:wrap}
   .btn{
     font-family:var(--body); font-weight:600; font-size:12.5px; color:var(--muted);
     background:var(--panel); border:1px solid var(--line); padding:8px 12px;
@@ -256,12 +258,8 @@
     <div class="actions">
       <button class="btn unlock" id="unlockTab" data-act="unlockTab" hidden>Разблокировать ввод</button>
       <button class="btn savePred" id="savePred" data-act="savePred" hidden>Сохранить прогноз</button>
-      <button class="btn" data-act="share">🔗 Ссылка</button>
-      <button class="btn" data-act="export">⬇ Экспорт</button>
-      <button class="btn" data-act="import">⬆ Импорт</button>
       <span class="cloudStatus" id="cloudStatus">облако: —</span>
       <button class="btn danger" data-act="reset">Сброс</button>
-      <input type="file" id="file" accept="application/json" hidden>
     </div>
   </div>
   <div class="hint" id="hint"></div>
@@ -528,17 +526,23 @@ function flagImg(code){
 
 function renderTabs(){
   var t = document.getElementById("tabs");
-  var defs = [
-    {v:"actual", label:"Факт"},
-    {v:"A", label:state.players.A.name},
-    {v:"B", label:state.players.B.name},
-    {v:"fullA", label:state.players.A.name+" общий"},
-    {v:"fullB", label:state.players.B.name+" общий"},
-    {v:"compare", label:"Сравнение"},
-    {v:"compareFull", label:"Сравнение общий"}
+  var groups = [
+    [{v:"actual", label:"Факт"}],
+    [
+      {v:"A", label:state.players.A.name},
+      {v:"B", label:state.players.B.name},
+      {v:"compare", label:"Сравнение"}
+    ],
+    [
+      {v:"fullA", label:state.players.A.name+" общий"},
+      {v:"fullB", label:state.players.B.name+" общий"},
+      {v:"compareFull", label:"Сравнение общий"}
+    ]
   ];
-  t.innerHTML = defs.map(function(d){
-    return '<button class="tab '+(state.view===d.v?"on":"")+'" data-view="'+d.v+'">'+escapeHtml(d.label)+'</button>';
+  t.innerHTML = groups.map(function(group){
+    return '<div class="tabGroup">'+group.map(function(d){
+      return '<button class="tab '+(state.view===d.v?"on":"")+'" data-view="'+d.v+'">'+escapeHtml(d.label)+'</button>';
+    }).join("")+'</div>';
   }).join("");
 }
 
@@ -786,12 +790,6 @@ function toast(msg){
   el.textContent=msg; el.classList.add("show");
   clearTimeout(el._t); el._t=setTimeout(function(){el.classList.remove("show");},1700);
 }
-function buildShareUrl(){
-  var json=JSON.stringify(state);
-  var b64=btoa(unescape(encodeURIComponent(json)));
-  var base=location.href.split("#")[0];
-  return base+"#d="+encodeURIComponent(b64);
-}
 function cloudUrl(){
   return CLOUD_DATABASE_URL.replace(/\/$/,"")+"/"+CLOUD_ROOM_PATH+".json";
 }
@@ -999,20 +997,6 @@ function doAction(act){
     flushCloudSave();
     var p=playerKey(state.view);
     toast("Прогноз "+state.players[p].name+" сохранён");
-  } else if(act==="share"){
-    var url=buildShareUrl();
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(url).then(function(){toast("Ссылка скопирована");}, function(){ prompt("Скопируй ссылку:", url); });
-    } else { prompt("Скопируй ссылку:", url); }
-    try{ history.replaceState(null,"", url); }catch(_){}
-  } else if(act==="export"){
-    var blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
-    var a=document.createElement("a");
-    a.href=URL.createObjectURL(blob); a.download="wc2026-duel.json"; a.click();
-    setTimeout(function(){URL.revokeObjectURL(a.href);},1000);
-    toast("Экспортировано");
-  } else if(act==="import"){
-    document.getElementById("file").click();
   } else if(act==="reset"){
     var resetPass=prompt("Пароль для сброса:");
     if(resetPass!==RESET_PASSWORD){
@@ -1028,16 +1012,6 @@ function doAction(act){
     }
   }
 }
-document.getElementById("file").addEventListener("change", function(e){
-  var f=e.target.files[0]; if(!f) return;
-  var rd=new FileReader();
-  rd.onload=function(){
-    try{ var obj=JSON.parse(rd.result); state=merge(emptyState(), obj); state.view="actual"; persist(); setCloudMeta({}); syncNames(); renderTabs(); renderHint(); renderBoard(); toast("Импортировано"); }
-    catch(err){ alert("Не удалось прочитать файл."); }
-  };
-  rd.readAsText(f);
-  e.target.value="";
-});
 
 /* ===================== СТАРТ ===================== */
 function syncNames(){
