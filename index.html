@@ -114,6 +114,7 @@
   }
   .btn:hover{color:var(--ink); border-color:var(--faint)}
   .btn.unlock.on{color:#06140F; background:var(--gold); border-color:var(--gold)}
+  .btn.apiToggle.on{color:#06140F; background:var(--F); border-color:var(--F)}
   .btn.danger:hover{color:#ff8b8b; border-color:#5a2a2a}
   .eyeBtn{width:38px; height:38px; padding:0; display:grid; place-items:center}
   .eyeIcon{
@@ -328,6 +329,8 @@
       <button class="btn unlock" id="unlockTab" data-act="unlockTab" hidden>Разблокировать ввод</button>
       <button class="btn savePred" id="savePred" data-act="savePred" hidden>Сохранить прогноз</button>
       <button class="btn eyeBtn" id="scoreSpoiler" data-act="toggleScores" title="Показать счета" aria-label="Показать счета"><span class="eyeIcon"></span></button>
+      <button class="btn apiToggle" id="apiToggle" data-act="toggleApi" title="Автообновление факта из API">Авто-факт</button>
+      <span class="cloudStatus" id="apiStatus">API: —</span>
       <span class="cloudStatus" id="cloudStatus">облако: —</span>
       <button class="btn danger" data-act="reset">Сброс</button>
     </div>
@@ -429,6 +432,25 @@ var CLOUD_META_KEY = "wc2026-duel-cloud-meta-v1";
 var CLIENT_KEY = "wc2026-duel-client-id-v1";
 var AUTO_CLOUD_SAVE_MS = 900;
 var AUTO_CLOUD_PULL_MS = 15000;
+
+/* --- авто-факт из бесплатного API (TheSportsDB) --- */
+var API_BASE = "https://www.thesportsdb.com/api/v1/json/123";
+var API_SPORT = "Soccer";
+var API_WC_LEAGUE_ID = "4429";       // FIFA World Cup
+var API_POLL_MS = 60000;             // опрос во время матчей
+var API_DUE_LEAD_MIN = 10;           // начинаем опрос за 10 мин до старта
+var API_DAY_TTL_MS = 30000;          // кэш ответа eventsday
+var API_TOGGLE_KEY = "wc2026-duel-apiauto-v1";
+var API_TEAM_ALIASES = {
+  RSA:["south africa"], CAN:["canada"], GER:["germany"], PAR:["paraguay"],
+  NED:["netherlands","holland"], MAR:["morocco"], BRA:["brazil"], JPN:["japan"],
+  FRA:["france"], SWE:["sweden"], CIV:["ivory coast","cote d ivoire","cote divoire"], NOR:["norway"],
+  MEX:["mexico"], ECU:["ecuador"], ENG:["england"], COD:["dr congo","congo dr","democratic republic of the congo","congo democratic republic"],
+  USA:["usa","united states","united states of america"], BIH:["bosnia and herzegovina","bosnia herzegovina","bosnia"], BEL:["belgium"], SEN:["senegal"],
+  POR:["portugal"], CRO:["croatia"], ESP:["spain"], AUT:["austria"],
+  SUI:["switzerland"], ALG:["algeria"], ARG:["argentina"], CPV:["cape verde","cabo verde"],
+  COL:["colombia"], GHA:["ghana"], AUS:["australia"], EGY:["egypt"]
+};
 
 /* ===================== СОСТОЯНИЕ ===================== */
 var LS_KEY = "wc2026-duel-v1";
@@ -1197,6 +1219,10 @@ function doAction(act){
     applyScoreSpoiler();
     renderActions();
     renderBoard();
+  } else if(act==="toggleApi"){
+    apiAuto=!apiAuto; persistApiAuto(); apiUpdateToggleBtn();
+    if(apiAuto){ toast("Авто-факт включён"); apiStart(); apiPollOnce(true); }
+    else { if(apiPollTimer){ clearInterval(apiPollTimer); apiPollTimer=null; } apiSetStatus("API: выкл"); toast("Авто-факт выключен"); }
   } else if(act==="reset"){
     var resetPass=prompt("Пароль для сброса:");
     if(resetPass!==RESET_PASSWORD){
@@ -1217,6 +1243,188 @@ function doAction(act){
   }
 }
 
+/* ===================== АВТО-ФАКТ ИЗ API ===================== */
+var apiAuto = loadApiAuto();
+var apiPollTimer = null;
+var apiBusy = false;
+var apiDayCache = {};   // "YYYY-MM-DD" -> {ts, events:[]}
+
+function loadApiAuto(){
+  try{ var v=localStorage.getItem(API_TOGGLE_KEY); return v==null?true:v==="1"; }catch(e){ return true; }
+}
+function persistApiAuto(){ try{ localStorage.setItem(API_TOGGLE_KEY, apiAuto?"1":"0"); }catch(e){} }
+
+function normName(s){
+  var str=String(s||"").toLowerCase();
+  try{ str=str.normalize("NFD").replace(/[̀-ͯ]/g,""); }catch(e){}
+  return str
+    .replace(/&/g," and ")
+    .replace(/[^a-z0-9 ]/g," ")
+    .replace(/\s+/g," ").trim();
+}
+var API_NAME_TO_CODE = (function(){
+  var map={};
+  Object.keys(API_TEAM_ALIASES).forEach(function(code){
+    API_TEAM_ALIASES[code].forEach(function(a){ map[normName(a)]=code; });
+  });
+  return map;
+})();
+function codeFromApiName(name){
+  var n=normName(name);
+  if(!n) return null;
+  if(API_NAME_TO_CODE[n]) return API_NAME_TO_CODE[n];
+  var keys=Object.keys(API_NAME_TO_CODE);
+  for(var i=0;i<keys.length;i++){
+    if(n.indexOf(keys[i])>-1 || keys[i].indexOf(n)>-1) return API_NAME_TO_CODE[keys[i]];
+  }
+  return null;
+}
+
+var API_FINISHED = {"FT":1,"AET":1,"PEN":1,"PEN.":1,"AP":1,"MATCH FINISHED":1,"AFTER EXTRA TIME":1,"AFTER PENALTIES":1,"FINISHED":1};
+function apiHasScore(ev){
+  return ev.intHomeScore!=null && ev.intHomeScore!=="" && ev.intAwayScore!=null && ev.intAwayScore!=="";
+}
+function apiIsFinished(ev){
+  return !!API_FINISHED[String(ev.strStatus||"").toUpperCase().trim()];
+}
+function apiIsLive(ev){
+  if(apiIsFinished(ev)) return false;
+  var s=String(ev.strStatus||"").toUpperCase().trim();
+  if(s==="" || s==="NS" || s==="NOT STARTED" || s==="POSTP" || s==="POSTPONED" || s==="TBD" || s==="CANC" || s==="CANCELLED") return false;
+  return apiHasScore(ev);
+}
+
+function localDate(dt){ return String(dt||"").split("T")[0]; }
+function addDay(dateStr, delta){
+  var d=new Date(dateStr+"T12:00:00");
+  if(isNaN(d.getTime())) return dateStr;
+  d.setDate(d.getDate()+delta);
+  return d.toISOString().slice(0,10);
+}
+function apiEventMatchesWC(e){
+  if(API_WC_LEAGUE_ID && String(e.idLeague)===API_WC_LEAGUE_ID) return true;
+  var L=String(e.strLeague||"");
+  return /world cup/i.test(L) && !/qualif|women|u-?\d|sub\s*\d|youth|club|beach|futsal/i.test(L);
+}
+function fetchApiDay(date){
+  var c=apiDayCache[date];
+  if(c && Date.now()-c.ts<API_DAY_TTL_MS) return Promise.resolve(c.events);
+  var url=API_BASE+"/eventsday.php?d="+date+"&s="+API_SPORT;
+  return fetch(url,{cache:"no-store"}).then(function(r){
+    if(!r.ok) throw new Error("api "+r.status);
+    return r.json();
+  }).then(function(j){
+    var evs=((j&&j.events)||[]).filter(apiEventMatchesWC);
+    apiDayCache[date]={ts:Date.now(),events:evs};
+    return evs;
+  });
+}
+function findApiEvent(events, topCode, botCode){
+  for(var i=0;i<events.length;i++){
+    var e=events[i];
+    var hc=codeFromApiName(e.strHomeTeam), ac=codeFromApiName(e.strAwayTeam);
+    if(!hc||!ac) continue;
+    if((hc===topCode&&ac===botCode)||(hc===botCode&&ac===topCode)){
+      return {ev:e, homeIsTop: hc===topCode};
+    }
+  }
+  return null;
+}
+// ничью по пенальти TheSportsDB надёжно не отдаёт — оставляем выбор хосту
+function apiPenaltyAdv(){ return null; }
+
+function applyApiResult(mid, ev, homeIsTop, finalize){
+  var hs=parseInt(ev.intHomeScore,10), as=parseInt(ev.intAwayScore,10);
+  if(isNaN(hs)||isNaN(as)) return false;
+  var existing=state.actuals[mid];
+  if(existing && existing.src==="api" && existing.final) return false;          // уже финал из API
+  if(existing && hasScore(existing) && existing.src!=="api") return false;       // ручной результат — не трогаем
+  var topScore = homeIsTop?hs:as;
+  var botScore = homeIsTop?as:hs;
+  var rec=ensureRec("actual", mid);
+  var newHome=String(topScore), newAway=String(botScore);
+  var newAdv = (topScore===botScore) ? apiPenaltyAdv() : null;
+  if(rec.home===newHome && rec.away===newAway && rec.src==="api" && rec.final===!!finalize) return false; // без изменений
+  rec.home=newHome; rec.away=newAway; rec.src="api"; rec.final=!!finalize; rec.apiStatus=ev.strStatus||"";
+  rec.adv = (topScore===botScore) ? newAdv : null;
+  return true;
+}
+
+function apiSetStatus(text, kind){
+  var el=document.getElementById("apiStatus");
+  if(!el) return;
+  el.className="cloudStatus"+(kind?" "+kind:"");
+  el.textContent=text||"API: —";
+}
+function apiNextLabel(bracket){
+  for(var i=0;i<MATCHES.length;i++){
+    var m=MATCHES[i], br=bracket[m.id];
+    if(!br||!br.top||!br.bot) continue;
+    var ex=state.actuals[m.id];
+    if(ex && ex.src==="api" && ex.final) continue;
+    if(ex && hasScore(ex)) continue;
+    return (apiAuto?"API: ждёт ":"API: выкл · ")+m.id+" "+fmtDate(m.dt);
+  }
+  return apiAuto ? "API: всё актуально" : "API: выкл";
+}
+
+function apiPollOnce(force){
+  if(!apiAuto && !force) return Promise.resolve();
+  if(apiBusy) return Promise.resolve();
+  apiBusy=true;
+  var bracket=computeBranch("actual");
+  var now=Date.now();
+  var due=[];
+  MATCHES.forEach(function(m){
+    var br=bracket[m.id];
+    if(!br||!br.top||!br.bot) return;                         // команды ещё не определены
+    var ex=state.actuals[m.id];
+    if(ex && ex.src==="api" && ex.final) return;              // финал из API
+    if(ex && hasScore(ex) && (!ex.src||ex.src!=="api")) return; // ручной результат
+    var ko=new Date(m.dt).getTime(); if(isNaN(ko)) ko=now;
+    if(now < ko - API_DUE_LEAD_MIN*60000) return;             // ещё рано
+    due.push({m:m, top:br.top, bot:br.bot});
+  });
+  if(!due.length){ apiBusy=false; apiSetStatus(apiNextLabel(bracket)); return Promise.resolve(); }
+  var dates={};
+  due.forEach(function(d){ var base=localDate(d.m.dt); dates[base]=1; dates[addDay(base,1)]=1; });
+  apiSetStatus("API: проверка…","warn");
+  return Promise.all(Object.keys(dates).map(fetchApiDay)).then(function(lists){
+    var all=[].concat.apply([],lists);
+    var changed=false, live=0, done=[];
+    due.forEach(function(d){
+      var hit=findApiEvent(all, d.top, d.bot);
+      if(!hit) return;
+      if(apiIsFinished(hit.ev) && apiHasScore(hit.ev)){
+        if(applyApiResult(d.m.id, hit.ev, hit.homeIsTop, true)){ changed=true; done.push(d.m.id); }
+      } else if(apiIsLive(hit.ev)){
+        if(applyApiResult(d.m.id, hit.ev, hit.homeIsTop, false)) changed=true;
+        live++;
+      }
+    });
+    if(changed){ persist(); renderTabs(); renderHint(); renderBoard(); }
+    if(live>0) apiSetStatus("API: в игре — "+live+(done.length?" · готово "+done.join(", "):""),"warn");
+    else if(done.length){ apiSetStatus("API: обновлено "+done.join(", "),"ok"); toast("Факт обновлён: "+done.join(", ")); }
+    else apiSetStatus(apiNextLabel(computeBranch("actual")));
+  }).catch(function(err){
+    console.error(err); apiSetStatus("API: ошибка","err");
+  }).finally(function(){ apiBusy=false; });
+}
+
+function apiUpdateToggleBtn(){
+  var b=document.getElementById("apiToggle");
+  if(b){ b.classList.toggle("on", apiAuto); b.title=apiAuto?"Автообновление факта: вкл":"Автообновление факта: выкл"; }
+}
+function apiStart(){
+  apiUpdateToggleBtn();
+  apiSetStatus(apiNextLabel(computeBranch("actual")));
+  if(apiPollTimer){ clearInterval(apiPollTimer); apiPollTimer=null; }
+  if(apiAuto){
+    setTimeout(function(){ apiPollOnce(); }, 2500);
+    apiPollTimer=setInterval(function(){ apiPollOnce(); }, API_POLL_MS);
+  }
+}
+
 /* ===================== СТАРТ ===================== */
 function syncNames(){
   document.getElementById("nameA").value=state.players.A.name;
@@ -1232,6 +1440,9 @@ renderBoard();
 renderCloudStatus();
 if(!startedFromHash){
   setupCloudAutoSync();
+  apiStart();
+} else {
+  apiSetStatus("API: общий снимок");
 }
 </script>
 </body>
