@@ -22,10 +22,10 @@
     --B:#F5A524;      /* игрок B */
     --F:#5EC2FF;      /* факт */
     --gold:#FFD34E;   /* чемпион / точный счёт */
-    --col-w:172px;
-    --center-w:248px;
-    --gap:10px;
-    --r:13px;
+    --col-w:148px;
+    --center-w:210px;
+    --gap:6px;
+    --r:10px;
     --disp:'Saira Condensed', system-ui, sans-serif;
     --body:'Saira', system-ui, sans-serif;
     --mono:'DM Mono', ui-monospace, monospace;
@@ -89,8 +89,8 @@
   .tabs{display:flex; gap:6px; flex-wrap:wrap}
   .tab{
     font-family:var(--disp); font-weight:700; letter-spacing:.03em; text-transform:uppercase;
-    font-size:12.5px; color:var(--muted); background:var(--panel); border:1px solid var(--line);
-    padding:8px 13px; border-radius:99px; cursor:pointer; white-space:nowrap; transition:.15s;
+    font-size:11.5px; color:var(--muted); background:var(--panel); border:1px solid var(--line);
+    padding:7px 10px; border-radius:99px; cursor:pointer; white-space:nowrap; transition:.15s;
   }
   .tab:hover{color:var(--ink); border-color:var(--faint)}
   .tab.on{color:#06140F; background:var(--ink); border-color:var(--ink)}
@@ -100,6 +100,7 @@
   .tab.on[data-view="fullB"]{background:var(--B); border-color:var(--B)}
   .tab.on[data-view="actual"]{background:var(--F); border-color:var(--F)}
   .tab.on[data-view="compare"]{background:var(--gold); border-color:var(--gold)}
+  .tab.on[data-view="compareFull"]{background:var(--gold); border-color:var(--gold)}
   .spacer{flex:1 1 auto}
   .actions{display:flex; gap:6px; flex-wrap:wrap}
   .btn{
@@ -114,12 +115,12 @@
   .hint code{color:var(--muted); font-family:var(--mono)}
 
   /* ---------- BOARD ---------- */
-  .scroll{overflow:auto; padding:18px clamp(10px,2.5vw,24px) 60px}
-  .legend{display:flex; gap:var(--gap); margin-bottom:10px; width:max-content}
+  .scroll{overflow:auto; padding:12px clamp(8px,1.6vw,16px) 44px}
+  .legend{display:flex; gap:var(--gap); margin-bottom:6px; width:max-content}
   .lh{
     width:var(--col-w); flex:0 0 var(--col-w); text-align:center;
     font-family:var(--disp); text-transform:uppercase; letter-spacing:.12em;
-    font-size:11px; color:var(--faint); font-weight:700;
+    font-size:10px; color:var(--faint); font-weight:700;
   }
   .lh.center{width:var(--center-w); flex:0 0 var(--center-w)}
   .board{display:flex; gap:var(--gap); align-items:stretch; width:max-content}
@@ -129,33 +130,33 @@
   }
   .col.center{
     width:var(--center-w); flex:0 0 var(--center-w);
-    justify-content:center; gap:22px;
+    justify-content:center; gap:12px;
   }
 
   /* match card */
   .m{
     background:linear-gradient(180deg,var(--panel),var(--bg2));
     border:1px solid var(--line); border-radius:var(--r);
-    padding:8px 9px 9px; position:relative;
+    padding:6px 7px 7px; position:relative;
   }
   .m.locked{opacity:.68}
-  .m.final{border-color:#4a4326; background:linear-gradient(180deg,#1b2418,#101a14); padding-top:10px}
+  .m.final{border-color:#4a4326; background:linear-gradient(180deg,#1b2418,#101a14); padding-top:8px}
   .m.third{border-style:dashed}
-  .m-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:7px}
-  .m-date{font-size:10.5px; color:var(--faint); font-family:var(--mono); letter-spacing:-.02em}
-  .m-id{font-size:10px; color:var(--faint); font-family:var(--mono)}
-  .m-title{font-family:var(--disp); text-transform:uppercase; letter-spacing:.1em; font-size:11px; color:var(--gold); text-align:center; margin-bottom:6px; font-weight:700}
+  .m-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:5px}
+  .m-date{font-size:9.5px; color:var(--faint); font-family:var(--mono); letter-spacing:-.02em}
+  .m-id{font-size:9px; color:var(--faint); font-family:var(--mono)}
+  .m-title{font-family:var(--disp); text-transform:uppercase; letter-spacing:.1em; font-size:10px; color:var(--gold); text-align:center; margin-bottom:4px; font-weight:700}
 
-  .row{display:flex; align-items:center; gap:7px; padding:3px 0}
-  .flag{width:22px; height:15px; border-radius:2.5px; object-fit:cover; flex:0 0 auto; box-shadow:0 0 0 1px rgba(255,255,255,.06)}
-  .tn{font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1 1 auto; min-width:0}
-  .tn.ph{color:var(--faint); font-weight:500; font-style:italic; font-size:12px}
+  .row{display:flex; align-items:center; gap:5px; padding:2px 0}
+  .flag{width:18px; height:12px; border-radius:2px; object-fit:cover; flex:0 0 auto; box-shadow:0 0 0 1px rgba(255,255,255,.06)}
+  .tn{font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1 1 auto; min-width:0}
+  .tn.ph{color:var(--faint); font-weight:500; font-style:italic; font-size:11px}
   .tn.win{color:var(--ink)}
   .tn.lose{color:var(--faint)}
   .score{
-    width:34px; flex:0 0 34px; text-align:center; font-family:var(--mono); font-size:16px;
+    width:29px; flex:0 0 29px; text-align:center; font-family:var(--mono); font-size:14px;
     color:var(--ink); background:#06120E; border:1px solid var(--line);
-    border-radius:7px; padding:5px 0; outline:none; transition:.12s;
+    border-radius:6px; padding:4px 0; outline:none; transition:.12s;
   }
   .score::placeholder{color:#2c4940}
   .score:focus{border-color:var(--cur,var(--A)); box-shadow:0 0 0 2px rgba(52,216,160,.18)}
@@ -164,11 +165,11 @@
   .col.mir .tn{text-align:right}
 
   /* advancer selector */
-  .adv{display:flex; gap:5px; margin-top:6px; padding-top:6px; border-top:1px dashed var(--line)}
+  .adv{display:flex; gap:4px; margin-top:5px; padding-top:5px; border-top:1px dashed var(--line)}
   .adv .lbl{font-size:10px; color:var(--faint); align-self:center; margin-right:1px; white-space:nowrap}
   .advb{
-    flex:1 1 0; font-size:11px; font-family:var(--body); font-weight:600; color:var(--muted);
-    background:#06120E; border:1px solid var(--line); border-radius:6px; padding:4px 2px; cursor:pointer;
+    flex:1 1 0; font-size:10px; font-family:var(--body); font-weight:600; color:var(--muted);
+    background:#06120E; border:1px solid var(--line); border-radius:6px; padding:3px 2px; cursor:pointer;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
   .advb:hover{color:var(--ink)}
@@ -176,13 +177,13 @@
   .advb:disabled{opacity:.5; cursor:not-allowed}
 
   /* compare card */
-  .m.cmp .cmp-team{display:flex; align-items:center; gap:7px; padding:2px 0; font-size:13px}
-  .pills{display:flex; flex-direction:column; gap:4px; margin-top:8px; padding-top:7px; border-top:1px dashed var(--line)}
-  .pill{display:flex; align-items:center; gap:7px; font-size:12px}
-  .pill .tag{font-family:var(--disp); font-weight:700; font-size:10.5px; letter-spacing:.04em; text-transform:uppercase; width:54px; flex:0 0 54px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .m.cmp .cmp-team{display:flex; align-items:center; gap:5px; padding:1px 0; font-size:12px}
+  .pills{display:flex; flex-direction:column; gap:3px; margin-top:6px; padding-top:5px; border-top:1px dashed var(--line)}
+  .pill{display:flex; align-items:center; gap:5px; font-size:11px}
+  .pill .tag{font-family:var(--disp); font-weight:700; font-size:9.5px; letter-spacing:.04em; text-transform:uppercase; width:46px; flex:0 0 46px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .pill.a .tag{color:var(--A)} .pill.b .tag{color:var(--B)} .pill.f .tag{color:var(--F)}
-  .pill .sc{font-family:var(--mono); font-size:13px; color:var(--ink)}
-  .pill .gain{margin-left:auto; font-family:var(--mono); font-size:12px; padding:1px 7px; border-radius:99px; border:1px solid var(--line); color:var(--muted)}
+  .pill .sc{font-family:var(--mono); font-size:12px; color:var(--ink)}
+  .pill .gain{margin-left:auto; font-family:var(--mono); font-size:11px; padding:1px 6px; border-radius:99px; border:1px solid var(--line); color:var(--muted)}
   .pill .gain.p{color:#06140F; background:var(--A); border-color:var(--A); font-weight:700}
   .pill.b .gain.p{background:var(--B); border-color:var(--B)}
   .cmp-wait{color:var(--faint); font-size:11.5px; font-style:italic; padding-top:6px}
@@ -202,7 +203,7 @@
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
 
   @media (max-width:560px){
-    :root{--col-w:150px; --center-w:200px}
+    :root{--col-w:136px; --center-w:184px}
     .pts{font-size:18px}
   }
 </style>
@@ -505,9 +506,10 @@ function renderTabs(){
     {v:"actual", label:"Факт"},
     {v:"A", label:state.players.A.name},
     {v:"B", label:state.players.B.name},
-    {v:"fullA", label:state.players.A.name+" весь"},
-    {v:"fullB", label:state.players.B.name+" весь"},
-    {v:"compare", label:"Сравнение"}
+    {v:"fullA", label:state.players.A.name+" общий"},
+    {v:"fullB", label:state.players.B.name+" общий"},
+    {v:"compare", label:"Сравнение"},
+    {v:"compareFull", label:"Сравнение общий"}
   ];
   t.innerHTML = defs.map(function(d){
     return '<button class="tab '+(state.view===d.v?"on":"")+'" data-view="'+d.v+'">'+escapeHtml(d.label)+'</button>';
@@ -517,7 +519,8 @@ function renderTabs(){
 function renderHint(){
   var h=document.getElementById("hint");
   var lockNote = isLockableBranch(state.view) && !isUnlocked(state.view) ? ' <b>Ввод заблокирован.</b>' : '';
-  if(state.view==="compare") h.innerHTML='Только просмотр. Цветные плашки — счёт каждого; число справа — +1 за угаданный проход команды.';
+  if(state.view==="compare") h.innerHTML='Только просмотр поэтапных прогнозов. Цветные плашки — счёт каждого; число справа — +1 за угаданный проход команды.';
+  else if(state.view==="compareFull") h.innerHTML='Только просмотр общих прогнозов на весь плей-офф против факта.';
   else if(state.view==="actual") h.innerHTML='Вводишь <code>реальный счёт</code>. Победители двигаются по фактической сетке.'+lockNote;
   else if(isFullBranch(state.view)){
     var p=playerKey(state.view);
@@ -601,9 +604,11 @@ function matchCardEditable(mid, branch, mirror){
   return html;
 }
 
-function matchCardCompare(mid){
+function matchCardCompare(mid, fullMode){
   var m=BYID[mid];
-  var ares=cache.actual, A=cache.A, B=cache.B;
+  var branchA=fullMode?"fullA":"A";
+  var branchB=fullMode?"fullB":"B";
+  var ares=cache.actual, A=cache[branchA], B=cache[branchB];
   var ar=ares[mid];
   var isFinal=m.round==="FINAL", isThird=m.round==="3RD";
   var cls="m cmp"+(isFinal?" final":"")+(isThird?" third":"");
@@ -620,6 +625,8 @@ function matchCardCompare(mid){
   var actScored=hasScore(state.actuals[mid]);
   function pill(branchKey, css){
     var realBranch=branchKey==="f"?"actual":branchKey;
+    if(branchKey==="A") realBranch=branchA;
+    if(branchKey==="B") realBranch=branchB;
     var raw=getResult(realBranch, mid);
     var branchRes=branchKey==="A"?A:(branchKey==="B"?B:ares);
     var r=resultApplies(realBranch, mid, raw, branchRes[mid].top, branchRes[mid].bot) ? raw : null;
@@ -653,10 +660,11 @@ function renderBoard(){
     return '<div class="lh'+(c.cls==="center"?" center":"")+'">'+c.label+'</div>';
   }).join("");
 
-  var compare = state.view==="compare";
+  var compare = state.view==="compare" || state.view==="compareFull";
+  var compareFull = state.view==="compareFull";
   board.innerHTML = COLUMNS.map(function(c){
     var inner = c.ids.map(function(mid){
-      return compare ? matchCardCompare(mid) : matchCardEditable(mid, state.view, c.cls==="mir");
+      return compare ? matchCardCompare(mid, compareFull) : matchCardEditable(mid, state.view, c.cls==="mir");
     }).join("");
     return '<div class="col '+c.cls+'">'+inner+'</div>';
   }).join("");
@@ -673,8 +681,10 @@ function renderHeader(){
     cache.fullA=computeBranch("fullA");
     cache.fullB=computeBranch("fullB");
   }
-  var tA=totalFor("A", cache.A, cache.actual);
-  var tB=totalFor("B", cache.B, cache.actual);
+  var scoreA = state.view==="compareFull" ? cache.fullA : cache.A;
+  var scoreB = state.view==="compareFull" ? cache.fullB : cache.B;
+  var tA=totalFor("A", scoreA, cache.actual);
+  var tB=totalFor("B", scoreB, cache.actual);
   document.getElementById("ptsA").textContent=tA;
   document.getElementById("ptsB").textContent=tB;
   var sum=tA+tB;
