@@ -259,8 +259,6 @@
       <button class="btn" data-act="share">🔗 Ссылка</button>
       <button class="btn" data-act="export">⬇ Экспорт</button>
       <button class="btn" data-act="import">⬆ Импорт</button>
-      <button class="btn" data-act="loadCloud">Облако ↓</button>
-      <button class="btn" data-act="saveCloud">Облако ↑</button>
       <span class="cloudStatus" id="cloudStatus">облако: —</span>
       <button class="btn danger" data-act="reset">Сброс</button>
       <input type="file" id="file" accept="application/json" hidden>
@@ -844,12 +842,41 @@ var cloudSaveTimer = null;
 var cloudWriteInFlight = false;
 var cloudSaveQueued = false;
 var cloudLoadInFlight = false;
+var cloudHasPendingSave = false;
+var lastCloudPullAt = 0;
+var cloudAutoSyncEnabled = false;
 
 function scheduleCloudSave(){
+  cloudHasPendingSave=true;
   clearTimeout(cloudSaveTimer);
   cloudSaveTimer=setTimeout(function(){
     saveCloudState({silent:true, confirmOverwrite:false});
   }, AUTO_CLOUD_SAVE_MS);
+}
+function flushCloudSave(){
+  clearTimeout(cloudSaveTimer);
+  return saveCloudState({silent:true, confirmOverwrite:false});
+}
+function refreshCloudFromSite(force){
+  if(!cloudAutoSyncEnabled || cloudWriteInFlight || cloudHasPendingSave) return Promise.resolve(null);
+  var now=Date.now();
+  if(!force && now-lastCloudPullAt<1500) return Promise.resolve(null);
+  lastCloudPullAt=now;
+  return loadCloudState({auto:true, silent:true});
+}
+function setupCloudAutoSync(){
+  cloudAutoSyncEnabled=true;
+  refreshCloudFromSite(true);
+  setInterval(function(){ refreshCloudFromSite(false); }, AUTO_CLOUD_PULL_MS);
+  window.addEventListener("focus", function(){ refreshCloudFromSite(true); });
+  window.addEventListener("pageshow", function(){ refreshCloudFromSite(true); });
+  window.addEventListener("online", function(){
+    if(cloudHasPendingSave) flushCloudSave();
+    else refreshCloudFromSite(true);
+  });
+  document.addEventListener("visibilitychange", function(){
+    if(!document.hidden) refreshCloudFromSite(true);
+  });
 }
 function applyCloudState(remote, silent){
   state=merge(emptyState(), remote.state);
@@ -892,6 +919,7 @@ function saveCloudState(options){
       return res.json();
     }).then(function(saved){
       setCloudMeta({updatedAt:saved.updatedAt, updatedBy:saved.updatedBy});
+      cloudHasPendingSave=false;
       renderCloudStatus("облако: "+fmtCloudTime(saved.updatedAt), "ok");
       if(!options.silent) toast("Сохранено в облако");
       return saved;
@@ -910,7 +938,7 @@ function saveCloudState(options){
 }
 function loadCloudState(options){
   options=options||{};
-  if(options.auto && cloudWriteInFlight) return Promise.resolve(null);
+  if(options.auto && (cloudWriteInFlight || cloudHasPendingSave)) return Promise.resolve(null);
   if(cloudLoadInFlight) return Promise.resolve(null);
   cloudLoadInFlight=true;
   if(!options.silent) renderCloudStatus("облако: загрузка...", "warn");
@@ -967,7 +995,8 @@ function doAction(act){
     if(!isPredictionBranch(state.view)) return;
     var now=new Date();
     state.saved[state.view]=now.toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
-    persist(); renderActions();
+    persist({cloud:false}); renderActions();
+    flushCloudSave();
     var p=playerKey(state.view);
     toast("Прогноз "+state.players[p].name+" сохранён");
   } else if(act==="share"){
@@ -984,10 +1013,6 @@ function doAction(act){
     toast("Экспортировано");
   } else if(act==="import"){
     document.getElementById("file").click();
-  } else if(act==="loadCloud"){
-    loadCloudState();
-  } else if(act==="saveCloud"){
-    saveCloudState();
   } else if(act==="reset"){
     var resetPass=prompt("Пароль для сброса:");
     if(resetPass!==RESET_PASSWORD){
@@ -1027,8 +1052,7 @@ renderHint();
 renderBoard();
 renderCloudStatus();
 if(!startedFromHash){
-  loadCloudState({auto:true, silent:true});
-  setInterval(function(){ loadCloudState({auto:true, silent:true}); }, AUTO_CLOUD_PULL_MS);
+  setupCloudAutoSync();
 }
 </script>
 </body>
