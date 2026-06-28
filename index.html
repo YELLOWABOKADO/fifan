@@ -118,6 +118,12 @@
   .btn.apiToggle.live::after{content:""; display:inline-block; width:7px; height:7px; border-radius:50%; background:#ff4d4d; margin-left:7px; vertical-align:middle; box-shadow:0 0 6px #ff4d4d; animation:liveblink 1.1s ease-in-out infinite}
   .liveDot{display:inline-block; width:8px; height:8px; border-radius:50%; background:#ff4d4d; margin-right:6px; vertical-align:middle; box-shadow:0 0 6px #ff4d4d; animation:liveblink 1.1s ease-in-out infinite}
   @keyframes liveblink{0%,100%{opacity:1} 50%{opacity:.2}}
+  /* подсветка матча, который идёт прямо сейчас */
+  .liveTag{color:#ff7a7a; font-family:var(--disp); font-weight:700; font-size:8.5px; letter-spacing:.06em; text-transform:uppercase}
+  .m.live{border-color:#ff4d4d; box-shadow:0 0 0 1px rgba(255,77,77,.35), 0 0 16px rgba(255,77,77,.16)}
+  .m.live .score{color:#ffd9d9; border-color:#ff4d4d; font-weight:700; box-shadow:0 0 0 1px rgba(255,77,77,.3), 0 0 12px rgba(255,77,77,.25)}
+  .pill .sc.live{color:#ff8e8e; font-weight:700; text-shadow:0 0 9px rgba(255,77,77,.45)}
+  body.scoresHidden .m.live .score, .scroll.scoresHidden .m.live .score{color:transparent; text-shadow:0 0 8px #ff6b6b}
   .btn.danger:hover{color:#ff8b8b; border-color:#5a2a2a}
   .eyeBtn{width:38px; height:38px; padding:0; display:grid; place-items:center}
   .eyeIcon{
@@ -731,7 +737,8 @@ function matchCardEditable(mid, branch, mirror){
   var owner = playerKey(branch);
   var cur = owner==="A"?"var(--A)":(owner==="B"?"var(--B)":"var(--F)");
   var isFinal = m.round==="FINAL", isThird=m.round==="3RD";
-  var cls="m"+(isFinal?" final":"")+(isThird?" third":"")+(!isUnlocked(branch)?" locked":"");
+  var actLive = (branch==="actual" && r && r.src==="api" && !r.final && hasScore(r));
+  var cls="m"+(isFinal?" final":"")+(isThird?" third":"")+(!isUnlocked(branch)?" locked":"")+(actLive?" live":"");
 
   function teamRow(slotCode, teamCode, pos){
     var label = teamCode ? TEAMS[teamCode].n : slotLabel(slotCode);
@@ -753,7 +760,7 @@ function matchCardEditable(mid, branch, mirror){
   var html='<div class="'+cls+'" data-card="'+mid+'">';
   if(isFinal) html+='<div class="m-title">Финал</div>';
   if(isThird) html+='<div class="m-title">Матч за 3-е</div>';
-  html+='<div class="m-head"><span class="m-date">'+fmtDate(m.dt)+'</span><span class="m-id">'+mid+'</span></div>';
+  html+='<div class="m-head"><span class="m-date">'+(actLive?'<span class="liveDot"></span>':'')+fmtDate(m.dt)+(actLive?' <span class="liveTag">live '+escapeHtml(apiLiveLabel(r.apiStatus))+'</span>':'')+'</span><span class="m-id">'+mid+'</span></div>';
   html+=teamRow(m.top, topT, "top");
   html+=teamRow(m.bottom, botT, "bottom");
 
@@ -776,11 +783,13 @@ function matchCardCompare(mid, fullMode){
   var ares=cache.actual, A=cache[branchA], B=cache[branchB];
   var ar=ares[mid];
   var isFinal=m.round==="FINAL", isThird=m.round==="3RD";
-  var cls="m cmp"+(isFinal?" final":"")+(isThird?" third":"");
+  var arec=state.actuals[mid];
+  var actLive=(arec && arec.src==="api" && !arec.final && hasScore(arec));
+  var cls="m cmp"+(isFinal?" final":"")+(isThird?" third":"")+(actLive?" live":"");
   var html='<div class="'+cls+'" data-card="'+mid+'">';
   if(isFinal) html+='<div class="m-title">Финал</div>';
   if(isThird) html+='<div class="m-title">Матч за 3-е</div>';
-  html+='<div class="m-head"><span class="m-date">'+fmtDate(m.dt)+'</span><span class="m-id">'+mid+'</span></div>';
+  html+='<div class="m-head"><span class="m-date">'+(actLive?'<span class="liveDot"></span>':'')+fmtDate(m.dt)+(actLive?' <span class="liveTag">live '+escapeHtml(apiLiveLabel(arec.apiStatus))+'</span>':'')+'</span><span class="m-id">'+mid+'</span></div>';
 
   // teams = фактическая сетка (если не определены — плейсхолдеры)
   var tT=ar.top, bT=ar.bot;
@@ -803,7 +812,8 @@ function matchCardCompare(mid, fullMode){
       var pts=pointsForMatch(branchKey, branchKey==="A"?A:B, ares, mid);
       gain='<span class="gain '+(pts>0?"p":"")+'">'+(pts>0?"+":"")+pts+'</span>';
     }
-    return '<div class="pill '+css+'"><span class="tag">'+escapeHtml(tag)+'</span><span class="sc '+(has?"scored":"")+'">'+sc+'</span>'+gain+'</div>';
+    var scLive = (branchKey==="f" && actLive) ? " live" : "";
+    return '<div class="pill '+css+'"><span class="tag">'+escapeHtml(tag)+'</span><span class="sc '+(has?"scored":"")+scLive+'">'+sc+'</span>'+gain+'</div>';
   }
   html+='<div class="pills">';
   html+=pill("A","a");
@@ -1391,6 +1401,11 @@ function applyApiResult(mid, ev, homeIsTop, finalize){
   return writeActual(mid, topScore, botScore, finalize, null, ev.strStatus||"");
 }
 
+function apiLiveLabel(short){
+  var s=String(short||"").toUpperCase();
+  var map={"1H":"1-й тайм","2H":"2-й тайм","HT":"перерыв","ET":"доп. время","BT":"перерыв","P":"пенальти","PEN":"пенальти","LIVE":"идёт","INT":"пауза","SUSP":"пауза"};
+  return map[s]||"идёт";
+}
 function apiSetStatus(text, live){
   apiLastStatus=text||"";
   apiLive=!!live;
