@@ -225,7 +225,23 @@
   .pill .tag{font-family:var(--disp); font-weight:700; font-size:9.5px; letter-spacing:.04em; text-transform:uppercase; width:46px; flex:0 0 46px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .pill.a .tag{color:var(--A)} .pill.b .tag{color:var(--B)} .pill.f .tag{color:var(--F)}
   .pill .sc{font-family:var(--mono); font-size:12px; color:var(--ink)}
-  body.scoresHidden .score{font-family:var(--mono)}
+  body.scoresHidden .row .flag,
+  body.scoresHidden .row .tn,
+  body.scoresHidden .cmp-team .flag,
+  body.scoresHidden .cmp-team .tn,
+  body.scoresHidden .advb{
+    filter:blur(5px); opacity:.42; user-select:none;
+  }
+  body.scoresHidden .tn.win,
+  body.scoresHidden .tn.lose{
+    color:var(--muted);
+  }
+  body.scoresHidden .advb.on{
+    color:var(--muted); background:#06120E; border-color:var(--line);
+  }
+  body.scoresHidden .score{
+    font-family:var(--mono); color:transparent; text-shadow:0 0 6px var(--muted);
+  }
   body.scoresHidden .pill .sc.scored{
     min-width:28px; color:transparent; position:relative;
   }
@@ -233,8 +249,15 @@
     content:"••"; color:var(--muted); position:absolute; left:0; top:0;
   }
   .pill .gain{margin-left:auto; font-family:var(--mono); font-size:11px; padding:1px 6px; border-radius:99px; border:1px solid var(--line); color:var(--muted)}
+  body.scoresHidden .pill .gain{
+    min-width:28px; color:transparent; background:transparent; border-color:var(--line); position:relative;
+  }
+  body.scoresHidden .pill .gain::after{
+    content:"•"; color:var(--muted); position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+  }
   .pill .gain.p{color:#06140F; background:var(--A); border-color:var(--A); font-weight:700}
   .pill.b .gain.p{background:var(--B); border-color:var(--B)}
+  body.scoresHidden .pill .gain.p{background:transparent; border-color:var(--line)}
   .cmp-wait{color:var(--faint); font-size:11.5px; font-style:italic; padding-top:6px}
 
   /* score legend / help */
