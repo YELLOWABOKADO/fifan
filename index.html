@@ -330,7 +330,7 @@
       <button class="btn savePred" id="savePred" data-act="savePred" hidden>Сохранить прогноз</button>
       <button class="btn eyeBtn" id="scoreSpoiler" data-act="toggleScores" title="Показать счета" aria-label="Показать счета"><span class="eyeIcon"></span></button>
       <button class="btn apiToggle" id="apiToggle" data-act="toggleApi" title="Автообновление факта из API">Авто-факт</button>
-      <span class="cloudStatus" id="apiStatus">API: —</span>
+      <span class="cloudStatus apiStat" id="apiStatus" data-act="apiRefresh" title="Обновить сейчас" style="cursor:pointer">API: —</span>
       <span class="cloudStatus" id="cloudStatus">облако: —</span>
       <button class="btn danger" data-act="reset">Сброс</button>
     </div>
@@ -435,11 +435,11 @@ var AUTO_CLOUD_PULL_MS = 15000;
 
 /* --- авто-факт из бесплатного API (TheSportsDB) --- */
 var API_BASE = "https://www.thesportsdb.com/api/v1/json/123";
-var API_SPORT = "Soccer";
 var API_WC_LEAGUE_ID = "4429";       // FIFA World Cup
-var API_POLL_MS = 60000;             // опрос во время матчей
+var API_SEASON = "2026";             // сезон ЧМ-2026
+var API_POLL_MS = 45000;             // опрос во время матчей
 var API_DUE_LEAD_MIN = 10;           // начинаем опрос за 10 мин до старта
-var API_DAY_TTL_MS = 30000;          // кэш ответа eventsday
+var API_SEASON_TTL_MS = 25000;       // кэш ответа eventsseason
 var API_TOGGLE_KEY = "wc2026-duel-apiauto-v1";
 var API_TEAM_ALIASES = {
   RSA:["south africa"], CAN:["canada"], GER:["germany"], PAR:["paraguay"],
@@ -1223,6 +1223,10 @@ function doAction(act){
     apiAuto=!apiAuto; persistApiAuto(); apiUpdateToggleBtn();
     if(apiAuto){ toast("Авто-факт включён"); apiStart(); apiPollOnce(true); }
     else { if(apiPollTimer){ clearInterval(apiPollTimer); apiPollTimer=null; } apiSetStatus("API: выкл"); toast("Авто-факт выключен"); }
+  } else if(act==="apiRefresh"){
+    apiSeasonCache=null;                 // сбросить кэш — тянем свежее
+    toast("Обновляю из API…");
+    apiPollOnce(true);
   } else if(act==="reset"){
     var resetPass=prompt("Пароль для сброса:");
     if(resetPass!==RESET_PASSWORD){
@@ -1247,7 +1251,7 @@ function doAction(act){
 var apiAuto = loadApiAuto();
 var apiPollTimer = null;
 var apiBusy = false;
-var apiDayCache = {};   // "YYYY-MM-DD" -> {ts, events:[]}
+var apiSeasonCache = null;   // {ts, events:[]}
 
 function loadApiAuto(){
   try{ var v=localStorage.getItem(API_TOGGLE_KEY); return v==null?true:v==="1"; }catch(e){ return true; }
@@ -1294,28 +1298,16 @@ function apiIsLive(ev){
   return apiHasScore(ev);
 }
 
-function localDate(dt){ return String(dt||"").split("T")[0]; }
-function addDay(dateStr, delta){
-  var d=new Date(dateStr+"T12:00:00");
-  if(isNaN(d.getTime())) return dateStr;
-  d.setDate(d.getDate()+delta);
-  return d.toISOString().slice(0,10);
-}
-function apiEventMatchesWC(e){
-  if(API_WC_LEAGUE_ID && String(e.idLeague)===API_WC_LEAGUE_ID) return true;
-  var L=String(e.strLeague||"");
-  return /world cup/i.test(L) && !/qualif|women|u-?\d|sub\s*\d|youth|club|beach|futsal/i.test(L);
-}
-function fetchApiDay(date){
-  var c=apiDayCache[date];
-  if(c && Date.now()-c.ts<API_DAY_TTL_MS) return Promise.resolve(c.events);
-  var url=API_BASE+"/eventsday.php?d="+date+"&s="+API_SPORT;
+// весь турнир одним запросом (eventsday на бесплатном ключе обрезается)
+function fetchApiSeason(){
+  if(apiSeasonCache && Date.now()-apiSeasonCache.ts<API_SEASON_TTL_MS) return Promise.resolve(apiSeasonCache.events);
+  var url=API_BASE+"/eventsseason.php?id="+API_WC_LEAGUE_ID+"&s="+API_SEASON;
   return fetch(url,{cache:"no-store"}).then(function(r){
     if(!r.ok) throw new Error("api "+r.status);
     return r.json();
   }).then(function(j){
-    var evs=((j&&j.events)||[]).filter(apiEventMatchesWC);
-    apiDayCache[date]={ts:Date.now(),events:evs};
+    var evs=(j&&j.events)||[];
+    apiSeasonCache={ts:Date.now(),events:evs};
     return evs;
   });
 }
@@ -1386,11 +1378,8 @@ function apiPollOnce(force){
     due.push({m:m, top:br.top, bot:br.bot});
   });
   if(!due.length){ apiBusy=false; apiSetStatus(apiNextLabel(bracket)); return Promise.resolve(); }
-  var dates={};
-  due.forEach(function(d){ var base=localDate(d.m.dt); dates[base]=1; dates[addDay(base,1)]=1; });
   apiSetStatus("API: проверка…","warn");
-  return Promise.all(Object.keys(dates).map(fetchApiDay)).then(function(lists){
-    var all=[].concat.apply([],lists);
+  return fetchApiSeason().then(function(all){
     var changed=false, live=0, done=[];
     due.forEach(function(d){
       var hit=findApiEvent(all, d.top, d.bot);
@@ -1420,7 +1409,7 @@ function apiStart(){
   apiSetStatus(apiNextLabel(computeBranch("actual")));
   if(apiPollTimer){ clearInterval(apiPollTimer); apiPollTimer=null; }
   if(apiAuto){
-    setTimeout(function(){ apiPollOnce(); }, 2500);
+    setTimeout(function(){ apiPollOnce(); }, 1200);
     apiPollTimer=setInterval(function(){ apiPollOnce(); }, API_POLL_MS);
   }
 }
