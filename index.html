@@ -330,7 +330,6 @@
       <button class="btn savePred" id="savePred" data-act="savePred" hidden>Сохранить прогноз</button>
       <button class="btn eyeBtn" id="scoreSpoiler" data-act="toggleScores" title="Показать счета" aria-label="Показать счета"><span class="eyeIcon"></span></button>
       <button class="btn apiToggle" id="apiToggle" data-act="toggleApi" title="Автообновление факта из API">Авто-факт</button>
-      <span class="cloudStatus apiStat" id="apiStatus" data-act="apiRefresh" title="Обновить сейчас" style="cursor:pointer">API: —</span>
       <span class="cloudStatus" id="cloudStatus">облако: —</span>
       <button class="btn danger" data-act="reset">Сброс</button>
     </div>
@@ -661,7 +660,7 @@ function renderHint(){
   var lockNote = isLockableBranch(state.view) && !isUnlocked(state.view) ? ' <b>Ввод заблокирован.</b>' : '';
   if(state.view==="compare") h.innerHTML='Только просмотр поэтапных прогнозов. Цветные плашки — счёт каждого; число справа — +1 за угаданный проход команды.';
   else if(state.view==="compareFull") h.innerHTML='Только просмотр общих прогнозов на весь плей-офф против факта.';
-  else if(state.view==="actual") h.innerHTML='Вводишь <code>реальный счёт</code>. Победители двигаются по фактической сетке.'+lockNote;
+  else if(state.view==="actual") h.innerHTML='Вводишь <code>реальный счёт</code>. Победители двигаются по фактической сетке.'+lockNote+(apiLastStatus?' · <span style="color:var(--F)">'+escapeHtml(apiLastStatus)+'</span>':'');
   else if(isFullBranch(state.view)){
     var p=playerKey(state.view);
     h.innerHTML='Полный прогноз игрока <b style="color:var(--'+p+')">'+escapeHtml(state.players[p].name)+'</b>: можно заполнить всю сетку до финала заранее.'+lockNote;
@@ -1223,10 +1222,6 @@ function doAction(act){
     apiAuto=!apiAuto; persistApiAuto(); apiUpdateToggleBtn();
     if(apiAuto){ toast("Авто-факт включён"); apiStart(); apiPollOnce(true); }
     else { if(apiPollTimer){ clearInterval(apiPollTimer); apiPollTimer=null; } apiSetStatus("API: выкл"); toast("Авто-факт выключен"); }
-  } else if(act==="apiRefresh"){
-    apiSeasonCache=null;                 // сбросить кэш — тянем свежее
-    toast("Обновляю из API…");
-    apiPollOnce(true);
   } else if(act==="reset"){
     var resetPass=prompt("Пароль для сброса:");
     if(resetPass!==RESET_PASSWORD){
@@ -1342,11 +1337,12 @@ function applyApiResult(mid, ev, homeIsTop, finalize){
   return true;
 }
 
+var apiLastStatus="";
 function apiSetStatus(text, kind){
-  var el=document.getElementById("apiStatus");
-  if(!el) return;
-  el.className="cloudStatus"+(kind?" "+kind:"");
-  el.textContent=text||"API: —";
+  apiLastStatus=text||"";
+  var b=document.getElementById("apiToggle");
+  if(b) b.title=apiLastStatus||"Автообновление факта из API";
+  if(state.view==="actual") renderHint();   // показываем в строке-подсказке, не в ряду кнопок
 }
 function apiNextLabel(bracket){
   for(var i=0;i<MATCHES.length;i++){
@@ -1365,7 +1361,6 @@ function apiPollOnce(force){
   if(apiBusy) return Promise.resolve();
   apiBusy=true;
   var bracket=computeBranch("actual");
-  var now=Date.now();
   var due=[];
   MATCHES.forEach(function(m){
     var br=bracket[m.id];
@@ -1373,9 +1368,7 @@ function apiPollOnce(force){
     var ex=state.actuals[m.id];
     if(ex && ex.src==="api" && ex.final) return;              // финал из API
     if(ex && hasScore(ex) && (!ex.src||ex.src!=="api")) return; // ручной результат
-    var ko=new Date(m.dt).getTime(); if(isNaN(ko)) ko=now;
-    if(now < ko - API_DUE_LEAD_MIN*60000) return;             // ещё рано
-    due.push({m:m, top:br.top, bot:br.bot});
+    due.push({m:m, top:br.top, bot:br.bot});                  // статус решает сам API
   });
   if(!due.length){ apiBusy=false; apiSetStatus(apiNextLabel(bracket)); return Promise.resolve(); }
   apiSetStatus("API: проверка…","warn");
