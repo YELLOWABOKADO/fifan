@@ -127,7 +127,10 @@
 
   /* ---------- BOARD ---------- */
   .scroll{overflow:auto; padding:12px clamp(8px,1.6vw,16px) 44px}
-  .legend{display:flex; gap:var(--gap); margin-bottom:6px; width:max-content}
+  .legend{
+    display:flex; justify-content:space-between; gap:var(--gap);
+    margin-bottom:6px; width:max-content; min-width:100%;
+  }
   .lh{
     width:var(--col-w); flex:0 0 var(--col-w); text-align:center;
     font-family:var(--disp); text-transform:uppercase; letter-spacing:.12em;
@@ -135,7 +138,10 @@
   }
   .lh.center{width:var(--center-w); flex:0 0 var(--center-w)}
   .lh.QFL,.lh.SFL,.lh.QFR,.lh.SFR{width:var(--late-w); flex:0 0 var(--late-w)}
-  .board{display:flex; gap:var(--gap); align-items:stretch; width:max-content}
+  .board{
+    display:flex; justify-content:space-between; gap:var(--gap);
+    align-items:stretch; width:max-content; min-width:100%;
+  }
   .col{
     width:var(--col-w); flex:0 0 var(--col-w);
     display:flex; flex-direction:column; justify-content:space-around; gap:var(--gap);
@@ -222,8 +228,11 @@
   }
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
 
+  @media (max-width:1500px){
+    :root{--col-w:132px; --center-w:176px; --late-w:122px; --late-shift:5px; --gap:5px}
+  }
   @media (max-width:560px){
-    :root{--col-w:136px; --center-w:184px; --late-w:128px; --late-shift:6px}
+    :root{--col-w:128px; --center-w:170px; --late-w:118px; --late-shift:5px; --gap:5px}
     .pts{font-size:18px}
   }
 </style>
