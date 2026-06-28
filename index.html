@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ЧМ-2026 · Дуэль прогнозов</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700;800;900&family=Saira:wght@400;500;600;700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#08130F;
+    --bg2:#0C1B16;
+    --panel:#102420;
+    --panel2:#16322B;
+    --line:#21443B;
+    --ink:#E9F3EE;
+    --muted:#7FA395;
+    --faint:#557366;
+    --A:#34D8A0;      /* игрок A */
+    --B:#F5A524;      /* игрок B */
+    --F:#5EC2FF;      /* факт */
+    --gold:#FFD34E;   /* чемпион / точный счёт */
+    --col-w:172px;
+    --center-w:248px;
+    --gap:10px;
+    --r:13px;
+    --disp:'Saira Condensed', system-ui, sans-serif;
+    --body:'Saira', system-ui, sans-serif;
+    --mono:'DM Mono', ui-monospace, monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #123026 0%, transparent 60%),
+      repeating-linear-gradient(90deg, #08130F 0 64px, #091711 64px 128px),
+      var(--bg);
+    color:var(--ink);
+    font-family:var(--body);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  a{color:var(--A)}
+
+  /* ---------- HEADER ---------- */
+  header{
+    position:sticky; top:0; z-index:40;
+    background:linear-gradient(180deg, rgba(8,19,15,.97), rgba(8,19,15,.86));
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+    padding:14px clamp(12px,3vw,28px) 12px;
+  }
+  .brandrow{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
+  .brand{
+    font-family:var(--disp); font-weight:900; letter-spacing:.04em;
+    font-size:clamp(18px,2.4vw,26px); text-transform:uppercase; line-height:1;
+  }
+  .brand b{color:var(--A)}
+  .sub{color:var(--muted); font-size:12.5px; letter-spacing:.02em}
+
+  /* duel meter */
+  .duel{margin-top:12px}
+  .duel-top{display:flex; justify-content:space-between; align-items:flex-end; gap:8px; margin-bottom:6px}
+  .duel-name{display:flex; align-items:center; gap:8px; min-width:0}
+  .dot{width:10px; height:10px; border-radius:50%; flex:0 0 auto}
+  .nameInput{
+    background:transparent; border:none; color:var(--ink);
+    font-family:var(--disp); font-weight:700; font-size:15px; letter-spacing:.02em;
+    width:13ch; padding:2px 4px; border-bottom:1px dashed transparent; outline:none;
+  }
+  .nameInput:hover{border-bottom-color:var(--line)}
+  .nameInput:focus{border-bottom-color:var(--A)}
+  .duel-name.b .nameInput{text-align:right}
+  .pts{font-family:var(--mono); font-size:22px; line-height:1}
+  .pts.a{color:var(--A)} .pts.b{color:var(--B)}
+  .bar{
+    height:14px; border-radius:99px; overflow:hidden; display:flex;
+    border:1px solid var(--line); background:var(--panel);
+  }
+  .bar .fa{background:linear-gradient(90deg,#1f8e69,var(--A)); transition:width .35s ease}
+  .bar .fb{background:linear-gradient(270deg,#b9791a,var(--B)); transition:width .35s ease}
+  .lead{margin-top:6px; font-size:12px; color:var(--muted); min-height:16px}
+  .lead b{color:var(--gold); font-weight:700}
+
+  /* tabs + actions */
+  .controls{display:flex; gap:14px; align-items:center; margin-top:14px; flex-wrap:wrap}
+  .tabs{display:flex; gap:6px; flex-wrap:wrap}
+  .tab{
+    font-family:var(--disp); font-weight:700; letter-spacing:.03em; text-transform:uppercase;
+    font-size:12.5px; color:var(--muted); background:var(--panel); border:1px solid var(--line);
+    padding:8px 13px; border-radius:99px; cursor:pointer; white-space:nowrap; transition:.15s;
+  }
+  .tab:hover{color:var(--ink); border-color:var(--faint)}
+  .tab.on{color:#06140F; background:var(--ink); border-color:var(--ink)}
+  .tab.on[data-view="A"]{background:var(--A); border-color:var(--A)}
+  .tab.on[data-view="B"]{background:var(--B); border-color:var(--B)}
+  .tab.on[data-view="actual"]{background:var(--F); border-color:var(--F)}
+  .tab.on[data-view="compare"]{background:var(--gold); border-color:var(--gold)}
+  .spacer{flex:1 1 auto}
+  .actions{display:flex; gap:6px; flex-wrap:wrap}
+  .btn{
+    font-family:var(--body); font-weight:600; font-size:12.5px; color:var(--muted);
+    background:var(--panel); border:1px solid var(--line); padding:8px 12px;
+    border-radius:9px; cursor:pointer; transition:.15s;
+  }
+  .btn:hover{color:var(--ink); border-color:var(--faint)}
+  .btn.danger:hover{color:#ff8b8b; border-color:#5a2a2a}
+  .hint{font-size:12px; color:var(--faint); margin-top:8px}
+  .hint code{color:var(--muted); font-family:var(--mono)}
+
+  /* ---------- BOARD ---------- */
+  .scroll{overflow:auto; padding:18px clamp(10px,2.5vw,24px) 60px}
+  .legend{display:flex; gap:var(--gap); margin-bottom:10px; width:max-content}
+  .lh{
+    width:var(--col-w); flex:0 0 var(--col-w); text-align:center;
+    font-family:var(--disp); text-transform:uppercase; letter-spacing:.12em;
+    font-size:11px; color:var(--faint); font-weight:700;
+  }
+  .lh.center{width:var(--center-w); flex:0 0 var(--center-w)}
+  .board{display:flex; gap:var(--gap); align-items:stretch; width:max-content}
+  .col{
+    width:var(--col-w); flex:0 0 var(--col-w);
+    display:flex; flex-direction:column; justify-content:space-around; gap:var(--gap);
+  }
+  .col.center{
+    width:var(--center-w); flex:0 0 var(--center-w);
+    justify-content:center; gap:22px;
+  }
+
+  /* match card */
+  .m{
+    background:linear-gradient(180deg,var(--panel),var(--bg2));
+    border:1px solid var(--line); border-radius:var(--r);
+    padding:8px 9px 9px; position:relative;
+  }
+  .m.final{border-color:#4a4326; background:linear-gradient(180deg,#1b2418,#101a14); padding-top:10px}
+  .m.third{border-style:dashed}
+  .m-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:7px}
+  .m-date{font-size:10.5px; color:var(--faint); font-family:var(--mono); letter-spacing:-.02em}
+  .m-id{font-size:10px; color:var(--faint); font-family:var(--mono)}
+  .m-title{font-family:var(--disp); text-transform:uppercase; letter-spacing:.1em; font-size:11px; color:var(--gold); text-align:center; margin-bottom:6px; font-weight:700}
+
+  .row{display:flex; align-items:center; gap:7px; padding:3px 0}
+  .flag{width:22px; height:15px; border-radius:2.5px; object-fit:cover; flex:0 0 auto; box-shadow:0 0 0 1px rgba(255,255,255,.06)}
+  .tn{font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1 1 auto; min-width:0}
+  .tn.ph{color:var(--faint); font-weight:500; font-style:italic; font-size:12px}
+  .tn.win{color:var(--ink)}
+  .tn.lose{color:var(--faint)}
+  .score{
+    width:34px; flex:0 0 34px; text-align:center; font-family:var(--mono); font-size:16px;
+    color:var(--ink); background:#06120E; border:1px solid var(--line);
+    border-radius:7px; padding:5px 0; outline:none; transition:.12s;
+  }
+  .score::placeholder{color:#2c4940}
+  .score:focus{border-color:var(--cur,var(--A)); box-shadow:0 0 0 2px rgba(52,216,160,.18)}
+  .score:disabled{opacity:.4; cursor:not-allowed}
+  .col.mir .row{flex-direction:row-reverse}
+  .col.mir .tn{text-align:right}
+
+  /* advancer selector */
+  .adv{display:flex; gap:5px; margin-top:6px; padding-top:6px; border-top:1px dashed var(--line)}
+  .adv .lbl{font-size:10px; color:var(--faint); align-self:center; margin-right:1px; white-space:nowrap}
+  .advb{
+    flex:1 1 0; font-size:11px; font-family:var(--body); font-weight:600; color:var(--muted);
+    background:#06120E; border:1px solid var(--line); border-radius:6px; padding:4px 2px; cursor:pointer;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .advb:hover{color:var(--ink)}
+  .advb.on{color:#06140F; background:var(--cur,var(--A)); border-color:var(--cur,var(--A))}
+
+  /* compare card */
+  .m.cmp .cmp-team{display:flex; align-items:center; gap:7px; padding:2px 0; font-size:13px}
+  .pills{display:flex; flex-direction:column; gap:4px; margin-top:8px; padding-top:7px; border-top:1px dashed var(--line)}
+  .pill{display:flex; align-items:center; gap:7px; font-size:12px}
+  .pill .tag{font-family:var(--disp); font-weight:700; font-size:10.5px; letter-spacing:.04em; text-transform:uppercase; width:54px; flex:0 0 54px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .pill.a .tag{color:var(--A)} .pill.b .tag{color:var(--B)} .pill.f .tag{color:var(--F)}
+  .pill .sc{font-family:var(--mono); font-size:13px; color:var(--ink)}
+  .pill .gain{margin-left:auto; font-family:var(--mono); font-size:12px; padding:1px 7px; border-radius:99px; border:1px solid var(--line); color:var(--muted)}
+  .pill .gain.p{color:#06140F; background:var(--A); border-color:var(--A); font-weight:700}
+  .pill .gain.exact{background:var(--gold); border-color:var(--gold)}
+  .pill.b .gain.p{background:var(--B); border-color:var(--B)}
+  .cmp-wait{color:var(--faint); font-size:11.5px; font-style:italic; padding-top:6px}
+
+  /* score legend / help */
+  details.help{margin-top:10px; font-size:12.5px; color:var(--muted)}
+  details.help summary{cursor:pointer; color:var(--muted); font-weight:600}
+  details.help ul{margin:8px 0 0; padding-left:18px; line-height:1.7}
+  details.help b{color:var(--ink)}
+
+  .toast{
+    position:fixed; bottom:18px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:var(--ink); color:#06140F; font-weight:700; font-size:13px;
+    padding:10px 18px; border-radius:99px; opacity:0; transition:.25s; pointer-events:none; z-index:80;
+    font-family:var(--disp); letter-spacing:.03em;
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+
+  @media (max-width:560px){
+    :root{--col-w:150px; --center-w:200px}
+    .pts{font-size:18px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brandrow">
+    <div class="brand">FIFA <b>2026</b> · Дуэль прогнозов</div>
+    <div class="sub">плей-офф · 1/16 → финал · автопродвижение победителей</div>
+  </div>
+
+  <div class="duel">
+    <div class="duel-top">
+      <div class="duel-name a">
+        <span class="dot" style="background:var(--A)"></span>
+        <input class="nameInput" id="nameA" maxlength="18" spellcheck="false">
+        <span class="pts a" id="ptsA">0</span>
+      </div>
+      <div class="duel-name b">
+        <span class="pts b" id="ptsB">0</span>
+        <input class="nameInput" id="nameB" maxlength="18" spellcheck="false">
+        <span class="dot" style="background:var(--B)"></span>
+      </div>
+    </div>
+    <div class="bar"><div class="fa" id="barA" style="width:50%"></div><div class="fb" id="barB" style="width:50%"></div></div>
+    <div class="lead" id="lead"></div>
+  </div>
+
+  <div class="controls">
+    <div class="tabs" id="tabs"></div>
+    <div class="spacer"></div>
+    <div class="actions">
+      <button class="btn" data-act="share">🔗 Ссылка</button>
+      <button class="btn" data-act="export">⬇ Экспорт</button>
+      <button class="btn" data-act="import">⬆ Импорт</button>
+      <button class="btn danger" data-act="reset">Сброс</button>
+      <input type="file" id="file" accept="application/json" hidden>
+    </div>
+  </div>
+  <div class="hint" id="hint"></div>
+  <details class="help">
+    <summary>Как считаются очки</summary>
+    <ul>
+      <li><b>Точный счёт</b> — 4</li>
+      <li><b>Верный исход + разница мячей</b> — 3</li>
+      <li><b>Верный исход</b> (кто прошёл дальше) — 2</li>
+      <li><b>Бонус «угадал пару»</b> — +1 (обе команды матча совпали с фактом)</li>
+      <li><b>Бонус «чемпион»</b> — +5 (угадан победитель финала)</li>
+      <li>При ничьей в основное время выбери, кто проходит по пенальти — это двигает сетку дальше.</li>
+    </ul>
+  </details>
+</header>
+
+<div class="scroll">
+  <div class="legend" id="legend"></div>
+  <div class="board" id="board"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ===================== ДАННЫЕ ===================== */
+var TEAMS = {
+  RSA:{n:"ЮАР",iso:"za"}, CAN:{n:"Канада",iso:"ca"}, GER:{n:"Германия",iso:"de"}, PAR:{n:"Парагвай",iso:"py"},
+  NED:{n:"Нидерланды",iso:"nl"}, MAR:{n:"Марокко",iso:"ma"}, BRA:{n:"Бразилия",iso:"br"}, JPN:{n:"Япония",iso:"jp"},
+  FRA:{n:"Франция",iso:"fr"}, SWE:{n:"Швеция",iso:"se"}, CIV:{n:"Кот-д’Ивуар",iso:"ci"}, NOR:{n:"Норвегия",iso:"no"},
+  MEX:{n:"Мексика",iso:"mx"}, ECU:{n:"Эквадор",iso:"ec"}, ENG:{n:"Англия",iso:"gb-eng"}, COD:{n:"ДР Конго",iso:"cd"},
+  USA:{n:"США",iso:"us"}, BIH:{n:"Босния",iso:"ba"}, BEL:{n:"Бельгия",iso:"be"}, SEN:{n:"Сенегал",iso:"sn"},
+  POR:{n:"Португалия",iso:"pt"}, CRO:{n:"Хорватия",iso:"hr"}, ESP:{n:"Испания",iso:"es"}, AUT:{n:"Австрия",iso:"at"},
+  SUI:{n:"Швейцария",iso:"ch"}, ALG:{n:"Алжир",iso:"dz"}, ARG:{n:"Аргентина",iso:"ar"}, CPV:{n:"Кабо-Верде",iso:"cv"},
+  COL:{n:"Колумбия",iso:"co"}, GHA:{n:"Гана",iso:"gh"}, AUS:{n:"Австралия",iso:"au"}, EGY:{n:"Египет",iso:"eg"}
+};
+
+var ROUND = {R32:"1/16 финала", R16:"1/8 финала", QF:"1/4 финала", SF:"1/2 финала", "3RD":"за 3-е место", FINAL:"Финал"};
+
+var MATCHES = [
+  {id:"M73",round:"R32",top:"RSA",bottom:"CAN",dt:"2026-06-28T22:00"},
+  {id:"M74",round:"R32",top:"GER",bottom:"PAR",dt:"2026-06-29T23:30"},
+  {id:"M75",round:"R32",top:"NED",bottom:"MAR",dt:"2026-06-30T04:00"},
+  {id:"M76",round:"R32",top:"BRA",bottom:"JPN",dt:"2026-06-29T20:00"},
+  {id:"M77",round:"R32",top:"FRA",bottom:"SWE",dt:"2026-07-01T00:00"},
+  {id:"M78",round:"R32",top:"CIV",bottom:"NOR",dt:"2026-06-30T20:00"},
+  {id:"M79",round:"R32",top:"MEX",bottom:"ECU",dt:"2026-07-01T04:00"},
+  {id:"M80",round:"R32",top:"ENG",bottom:"COD",dt:"2026-07-01T19:00"},
+  {id:"M81",round:"R32",top:"USA",bottom:"BIH",dt:"2026-07-02T03:00"},
+  {id:"M82",round:"R32",top:"BEL",bottom:"SEN",dt:"2026-07-01T23:00"},
+  {id:"M83",round:"R32",top:"POR",bottom:"CRO",dt:"2026-07-03T02:00"},
+  {id:"M84",round:"R32",top:"ESP",bottom:"AUT",dt:"2026-07-02T22:00"},
+  {id:"M85",round:"R32",top:"SUI",bottom:"ALG",dt:"2026-07-03T06:00"},
+  {id:"M86",round:"R32",top:"ARG",bottom:"CPV",dt:"2026-07-04T01:00"},
+  {id:"M87",round:"R32",top:"COL",bottom:"GHA",dt:"2026-07-04T04:30"},
+  {id:"M88",round:"R32",top:"AUS",bottom:"EGY",dt:"2026-07-03T21:00"},
+  {id:"M89",round:"R16",top:"W74",bottom:"W77",dt:"2026-07-05T00:00"},
+  {id:"M90",round:"R16",top:"W73",bottom:"W75",dt:"2026-07-04T20:00"},
+  {id:"M91",round:"R16",top:"W76",bottom:"W78",dt:"2026-07-05T23:00"},
+  {id:"M92",round:"R16",top:"W79",bottom:"W80",dt:"2026-07-06T03:00"},
+  {id:"M93",round:"R16",top:"W83",bottom:"W84",dt:"2026-07-06T22:00"},
+  {id:"M94",round:"R16",top:"W81",bottom:"W82",dt:"2026-07-07T03:00"},
+  {id:"M95",round:"R16",top:"W86",bottom:"W88",dt:"2026-07-07T19:00"},
+  {id:"M96",round:"R16",top:"W85",bottom:"W87",dt:"2026-07-07T23:00"},
+  {id:"M97",round:"QF",top:"W89",bottom:"W90",dt:"2026-07-09T23:00"},
+  {id:"M98",round:"QF",top:"W93",bottom:"W94",dt:"2026-07-10T22:00"},
+  {id:"M99",round:"QF",top:"W91",bottom:"W92",dt:"2026-07-12T00:00"},
+  {id:"M100",round:"QF",top:"W95",bottom:"W96",dt:"2026-07-12T04:00"},
+  {id:"M101",round:"SF",top:"W97",bottom:"W98",dt:"2026-07-14T22:00"},
+  {id:"M102",round:"SF",top:"W99",bottom:"W100",dt:"2026-07-15T22:00"},
+  {id:"M103",round:"3RD",top:"RU101",bottom:"RU102",dt:"2026-07-19T00:00"},
+  {id:"M104",round:"FINAL",top:"W101",bottom:"W102",dt:"2026-07-19T22:00"}
+];
+var BYID = {}; MATCHES.forEach(function(m){BYID[m.id]=m;});
+
+/* раскладка двусторонней сетки (сверху вниз в каждой колонке) */
+var COLUMNS = [
+  {key:"R32L", label:"1/16", cls:"", ids:["M74","M77","M73","M75","M83","M84","M81","M82"]},
+  {key:"R16L", label:"1/8",  cls:"", ids:["M89","M90","M93","M94"]},
+  {key:"QFL",  label:"1/4",  cls:"", ids:["M97","M98"]},
+  {key:"SFL",  label:"1/2",  cls:"", ids:["M101"]},
+  {key:"CEN",  label:"Финал · 3-е", cls:"center", ids:["M104","M103"]},
+  {key:"SFR",  label:"1/2",  cls:"mir", ids:["M102"]},
+  {key:"QFR",  label:"1/4",  cls:"mir", ids:["M99","M100"]},
+  {key:"R16R", label:"1/8",  cls:"mir", ids:["M91","M92","M95","M96"]},
+  {key:"R32R", label:"1/16", cls:"mir", ids:["M76","M78","M79","M80","M86","M88","M85","M87"]}
+];
+
+var SCORING = {exact:4, diff:3, tendency:2, matchup:1, champion:5};
+
+/* ===================== СОСТОЯНИЕ ===================== */
+var LS_KEY = "wc2026-duel-v1";
+
+function emptyState(){
+  return {
+    v:1,
+    players:{A:{name:"Гена"}, B:{name:"Сергей"}},
+    predictions:{A:{}, B:{}},
+    actuals:{},
+    view:"A"
+  };
+}
+function decodeHash(){
+  try{
+    var h = location.hash || "";
+    var m = h.match(/[#&]d=([^&]+)/);
+    if(!m) return null;
+    var json = decodeURIComponent(escape(atob(decodeURIComponent(m[1]))));
+    return JSON.parse(json);
+  }catch(e){ return null; }
+}
+function loadState(){
+  var fromHash = decodeHash();
+  if(fromHash){ return merge(emptyState(), fromHash); }
+  try{
+    var raw = localStorage.getItem(LS_KEY);
+    if(raw) return merge(emptyState(), JSON.parse(raw));
+  }catch(e){}
+  return emptyState();
+}
+function merge(base, src){
+  if(!src || typeof src!=="object") return base;
+  if(src.players){ if(src.players.A&&src.players.A.name) base.players.A.name=String(src.players.A.name); if(src.players.B&&src.players.B.name) base.players.B.name=String(src.players.B.name); }
+  if(src.predictions){ base.predictions.A = src.predictions.A||{}; base.predictions.B = src.predictions.B||{}; }
+  if(src.actuals) base.actuals = src.actuals;
+  if(src.view) base.view = src.view;
+  return base;
+}
+var state = loadState();
+
+function persist(){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){}
+}
+
+/* ===================== ЛОГИКА СЕТКИ ===================== */
+function getResult(branch, mid){
+  if(branch==="actual") return state.actuals[mid];
+  return state.predictions[branch][mid];
+}
+function hasScore(r){
+  if(!r) return false;
+  if(r.home===""||r.home==null||r.away===""||r.away==null) return false;
+  return !isNaN(+r.home) && !isNaN(+r.away);
+}
+function slotTeam(code, out){
+  if(TEAMS[code]) return code;
+  if(code.indexOf("RU")===0){ var l="M"+code.slice(2); return out[l]?out[l].loser:null; }
+  if(code.charAt(0)==="W"){ var w="M"+code.slice(1); return out[w]?out[w].winner:null; }
+  return null;
+}
+function slotLabel(code){
+  if(TEAMS[code]) return TEAMS[code].n;
+  if(code.indexOf("RU")===0) return "Проигр. "+("M"+code.slice(2));
+  if(code.charAt(0)==="W") return "Побед. "+("M"+code.slice(1));
+  return code;
+}
+function computeBranch(branch){
+  var out = {};
+  for(var i=0;i<MATCHES.length;i++){
+    var m = MATCHES[i];
+    var top = slotTeam(m.top, out);
+    var bot = slotTeam(m.bottom, out);
+    var r = getResult(branch, m.id);
+    var winner=null, loser=null;
+    if(top && bot && hasScore(r)){
+      var h=+r.home, a=+r.away;
+      if(h>a){winner=top; loser=bot;}
+      else if(a>h){winner=bot; loser=top;}
+      else { if(r.adv==="top"){winner=top; loser=bot;} else if(r.adv==="bottom"){winner=bot; loser=top;} }
+    }
+    out[m.id] = {top:top, bot:bot, winner:winner, loser:loser};
+  }
+  return out;
+}
+
+/* ===================== ОЧКИ ===================== */
+function pointsForMatch(branch, bres, ares, mid){
+  var act = state.actuals[mid];
+  if(!hasScore(act)) return 0;
+  var pred = getResult(branch, mid);
+  if(!hasScore(pred)) return 0;
+  var ph=+pred.home, pa=+pred.away, ah=+act.home, aa=+act.away;
+  var ps=Math.sign(ph-pa), as=Math.sign(ah-aa);
+  var pts=0;
+  if(ph===ah && pa===aa) pts=SCORING.exact;
+  else if(ps===as && (ph-pa)===(ah-aa)) pts=SCORING.diff;
+  else if(ps===as) pts=SCORING.tendency;
+  if(BYID[mid].round!=="R32"){
+    var pr=bres[mid], ar=ares[mid];
+    if(pr&&ar&&pr.top&&pr.bot&&ar.top&&ar.bot){
+      if((pr.top===ar.top&&pr.bot===ar.bot)||(pr.top===ar.bot&&pr.bot===ar.top)) pts+=SCORING.matchup;
+    }
+  }
+  return pts;
+}
+function totalFor(branch, bres, ares){
+  var t=0;
+  for(var i=0;i<MATCHES.length;i++){ t += pointsForMatch(branch, bres, ares, MATCHES[i].id); }
+  var fa=ares["M104"], fp=bres["M104"];
+  if(fa&&fa.winner&&fp&&fp.winner&&fa.winner===fp.winner) t+=SCORING.champion;
+  return t;
+}
+
+/* ===================== РЕНДЕР ===================== */
+var board = document.getElementById("board");
+var legend = document.getElementById("legend");
+var cache = {A:null, B:null, actual:null};
+
+function fmtDate(dt){
+  if(!dt) return "—";
+  var d=dt.split("T"); var day=d[0].split("-"); var t=d[1]||"";
+  return day[2]+"."+day[1]+" "+t;
+}
+function flagImg(code){
+  if(!code||!TEAMS[code]) return "";
+  var iso=TEAMS[code].iso;
+  return '<img class="flag" alt="" src="https://flagcdn.com/w40/'+iso+'.png" '+
+         'srcset="https://flagcdn.com/w80/'+iso+'.png 2x" '+
+         'onerror="this.style.display=\'none\'">';
+}
+
+function renderTabs(){
+  var t = document.getElementById("tabs");
+  var defs = [
+    {v:"A", label:state.players.A.name},
+    {v:"B", label:state.players.B.name},
+    {v:"actual", label:"Факт"},
+    {v:"compare", label:"Сравнение"}
+  ];
+  t.innerHTML = defs.map(function(d){
+    return '<button class="tab '+(state.view===d.v?"on":"")+'" data-view="'+d.v+'">'+escapeHtml(d.label)+'</button>';
+  }).join("");
+}
+
+function renderHint(){
+  var h=document.getElementById("hint");
+  if(state.view==="compare") h.innerHTML='Только просмотр. Цветные плашки — счёт каждого; число справа — очки за матч.';
+  else if(state.view==="actual") h.innerHTML='Вводишь <code>реальный счёт</code>. Победители двигаются по фактической сетке.';
+  else h.innerHTML='Прогноз игрока <b style="color:var(--'+state.view+')">'+escapeHtml(state.players[state.view].name)+'</b>. Победители двигаются по его сетке — сначала заполни 1/16.';
+}
+
+function matchCardEditable(mid, branch, mirror){
+  var m=BYID[mid];
+  var res=cache[branch][mid];
+  var r=getResult(branch, mid) || {};
+  var topT=res.top, botT=res.bot;
+  var resolved = topT && botT;
+  var isDraw = hasScore(r) && (+r.home===+r.away);
+  var cur = branch==="A"?"var(--A)":(branch==="B"?"var(--B)":"var(--F)");
+  var isFinal = m.round==="FINAL", isThird=m.round==="3RD";
+  var cls="m"+(isFinal?" final":"")+(isThird?" third":"");
+
+  function teamRow(slotCode, teamCode, pos){
+    var label = teamCode ? TEAMS[teamCode].n : slotLabel(slotCode);
+    var nameCls = "tn"+(teamCode?"":" ph");
+    if(resolved && hasScore(r)){
+      var win = (res.winner && res.winner===teamCode);
+      nameCls += win ? " win" : " lose";
+    }
+    var sval = (pos==="top") ? (r.home==null?"":r.home) : (r.away==null?"":r.away);
+    var field = (pos==="top")?"home":"away";
+    return '<div class="row">'+flagImg(teamCode)+
+      '<span class="'+nameCls+'">'+escapeHtml(label)+'</span>'+
+      '<input class="score" inputmode="numeric" maxlength="2" placeholder="·" '+
+        'style="--cur:'+cur+'" data-mid="'+mid+'" data-field="'+field+'" data-branch="'+branch+'" '+
+        (resolved?"":"disabled")+' value="'+sval+'">'+
+    '</div>';
+  }
+
+  var html='<div class="'+cls+'" data-card="'+mid+'">';
+  if(isFinal) html+='<div class="m-title">Финал</div>';
+  if(isThird) html+='<div class="m-title">Матч за 3-е</div>';
+  html+='<div class="m-head"><span class="m-date">'+fmtDate(m.dt)+'</span><span class="m-id">'+mid+'</span></div>';
+  html+=teamRow(m.top, topT, "top");
+  html+=teamRow(m.bottom, botT, "bottom");
+
+  if(resolved && isDraw){
+    var advTop=r.adv==="top", advBot=r.adv==="bottom";
+    html+='<div class="adv"><span class="lbl">пен:</span>'+
+      '<button class="advb '+(advTop?"on":"")+'" style="--cur:'+cur+'" data-adv="top" data-mid="'+mid+'" data-branch="'+branch+'">'+escapeHtml(TEAMS[topT].n)+'</button>'+
+      '<button class="advb '+(advBot?"on":"")+'" style="--cur:'+cur+'" data-adv="bottom" data-mid="'+mid+'" data-branch="'+branch+'">'+escapeHtml(TEAMS[botT].n)+'</button>'+
+    '</div>';
+  }
+  html+='</div>';
+  return html;
+}
+
+function matchCardCompare(mid){
+  var m=BYID[mid];
+  var ares=cache.actual, A=cache.A, B=cache.B;
+  var ar=ares[mid];
+  var isFinal=m.round==="FINAL", isThird=m.round==="3RD";
+  var cls="m cmp"+(isFinal?" final":"")+(isThird?" third":"");
+  var html='<div class="'+cls+'" data-card="'+mid+'">';
+  if(isFinal) html+='<div class="m-title">Финал</div>';
+  if(isThird) html+='<div class="m-title">Матч за 3-е</div>';
+  html+='<div class="m-head"><span class="m-date">'+fmtDate(m.dt)+'</span><span class="m-id">'+mid+'</span></div>';
+
+  // teams = фактическая сетка (если не определены — плейсхолдеры)
+  var tT=ar.top, bT=ar.bot;
+  html+='<div class="cmp-team">'+flagImg(tT)+'<span class="'+(tT?"tn":"tn ph")+'">'+escapeHtml(tT?TEAMS[tT].n:slotLabel(m.top))+'</span></div>';
+  html+='<div class="cmp-team">'+flagImg(bT)+'<span class="'+(bT?"tn":"tn ph")+'">'+escapeHtml(bT?TEAMS[bT].n:slotLabel(m.bottom))+'</span></div>';
+
+  var actScored=hasScore(state.actuals[mid]);
+  function pill(branchKey, css){
+    var r=getResult(branchKey==="f"?"actual":branchKey, mid);
+    var has=hasScore(r);
+    var sc = has ? (r.home+":"+r.away) : "—";
+    var tag = branchKey==="A"?state.players.A.name : (branchKey==="B"?state.players.B.name:"Факт");
+    var gain="";
+    if(branchKey!=="f" && actScored){
+      var pts=pointsForMatch(branchKey, branchKey==="A"?A:B, ares, mid);
+      var exact = has && +r.home===+state.actuals[mid].home && +r.away===+state.actuals[mid].away;
+      gain='<span class="gain '+(pts>0?"p":"")+(exact?" exact":"")+'">'+(pts>0?"+":"")+pts+'</span>';
+    }
+    return '<div class="pill '+css+'"><span class="tag">'+escapeHtml(tag)+'</span><span class="sc">'+sc+'</span>'+gain+'</div>';
+  }
+  html+='<div class="pills">';
+  html+=pill("A","a");
+  html+=pill("B","b");
+  html+=pill("f","f");
+  html+='</div>';
+  html+='</div>';
+  return html;
+}
+
+function renderBoard(){
+  cache.A=computeBranch("A"); cache.B=computeBranch("B"); cache.actual=computeBranch("actual");
+
+  legend.innerHTML = COLUMNS.map(function(c){
+    return '<div class="lh'+(c.cls==="center"?" center":"")+'">'+c.label+'</div>';
+  }).join("");
+
+  var compare = state.view==="compare";
+  board.innerHTML = COLUMNS.map(function(c){
+    var inner = c.ids.map(function(mid){
+      return compare ? matchCardCompare(mid) : matchCardEditable(mid, state.view, c.cls==="mir");
+    }).join("");
+    return '<div class="col '+c.cls+'">'+inner+'</div>';
+  }).join("");
+
+  renderHeader();
+}
+
+function renderHeader(){
+  if(!cache.A){ cache.A=computeBranch("A"); cache.B=computeBranch("B"); cache.actual=computeBranch("actual"); }
+  var tA=totalFor("A", cache.A, cache.actual);
+  var tB=totalFor("B", cache.B, cache.actual);
+  document.getElementById("ptsA").textContent=tA;
+  document.getElementById("ptsB").textContent=tB;
+  var sum=tA+tB;
+  var pa = sum>0 ? (tA/sum*100) : 50;
+  document.getElementById("barA").style.width=pa+"%";
+  document.getElementById("barB").style.width=(100-pa)+"%";
+  var lead=document.getElementById("lead");
+  if(sum===0){ lead.innerHTML="Введи результаты в «Факт», чтобы начать начислять очки."; }
+  else if(tA>tB){ lead.innerHTML="Ведёт <b>"+escapeHtml(state.players.A.name)+"</b> · +"+(tA-tB); }
+  else if(tB>tA){ lead.innerHTML="Ведёт <b>"+escapeHtml(state.players.B.name)+"</b> · +"+(tB-tA); }
+  else { lead.innerHTML="<b>Ничья</b> · "+tA+":"+tB; }
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+
+/* ===================== ВВОД ===================== */
+function ensureRec(branch, mid){
+  var bag = branch==="actual" ? state.actuals : state.predictions[branch];
+  if(!bag[mid]) bag[mid]={home:"", away:"", adv:null};
+  return bag[mid];
+}
+
+document.addEventListener("input", function(e){
+  var t=e.target;
+  if(t.classList.contains("score")){
+    var v=t.value.replace(/[^0-9]/g,"").slice(0,2);
+    t.value=v;
+    var rec=ensureRec(t.dataset.branch, t.dataset.mid);
+    rec[t.dataset.field]= v==="" ? "" : v;
+    if(rec.home!=="" && rec.away!=="" && +rec.home!==+rec.away) rec.adv=null; // не ничья — adv не нужен
+    persist();
+    rerenderKeepFocus();
+  } else if(t.id==="nameA"){ state.players.A.name=t.value||"Гена"; persist(); renderTabs(); renderHeader(); renderHint(); }
+  else if(t.id==="nameB"){ state.players.B.name=t.value||"Сергей"; persist(); renderTabs(); renderHeader(); renderHint(); }
+});
+
+document.addEventListener("click", function(e){
+  var t=e.target.closest("[data-view],[data-adv],[data-act]");
+  if(!t) return;
+  if(t.dataset.view){
+    state.view=t.dataset.view; persist();
+    renderTabs(); renderHint(); renderBoard();
+  } else if(t.dataset.adv){
+    var rec=ensureRec(t.dataset.branch, t.dataset.mid);
+    rec.adv = (rec.adv===t.dataset.adv) ? null : t.dataset.adv;
+    persist(); rerenderKeepFocus();
+  } else if(t.dataset.act){
+    doAction(t.dataset.act);
+  }
+});
+
+function rerenderKeepFocus(){
+  var a=document.activeElement;
+  var key=null;
+  if(a && a.classList && a.classList.contains("score")) key={mid:a.dataset.mid, field:a.dataset.field, branch:a.dataset.branch};
+  renderBoard();
+  if(key){
+    var sel='.score[data-mid="'+key.mid+'"][data-field="'+key.field+'"][data-branch="'+key.branch+'"]';
+    var el=document.querySelector(sel);
+    if(el && !el.disabled){ el.focus(); var L=el.value.length; try{el.setSelectionRange(L,L);}catch(_){} }
+  }
+}
+
+/* ===================== ДЕЙСТВИЯ ===================== */
+function toast(msg){
+  var el=document.getElementById("toast");
+  el.textContent=msg; el.classList.add("show");
+  clearTimeout(el._t); el._t=setTimeout(function(){el.classList.remove("show");},1700);
+}
+function buildShareUrl(){
+  var json=JSON.stringify(state);
+  var b64=btoa(unescape(encodeURIComponent(json)));
+  var base=location.href.split("#")[0];
+  return base+"#d="+encodeURIComponent(b64);
+}
+function doAction(act){
+  if(act==="share"){
+    var url=buildShareUrl();
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(function(){toast("Ссылка скопирована");}, function(){ prompt("Скопируй ссылку:", url); });
+    } else { prompt("Скопируй ссылку:", url); }
+    try{ history.replaceState(null,"", url); }catch(_){}
+  } else if(act==="export"){
+    var blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+    var a=document.createElement("a");
+    a.href=URL.createObjectURL(blob); a.download="wc2026-duel.json"; a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);},1000);
+    toast("Экспортировано");
+  } else if(act==="import"){
+    document.getElementById("file").click();
+  } else if(act==="reset"){
+    if(confirm("Сбросить все прогнозы и результаты?")){
+      state=emptyState(); persist();
+      try{ history.replaceState(null,"", location.href.split("#")[0]); }catch(_){}
+      syncNames(); renderTabs(); renderHint(); renderBoard();
+      toast("Сброшено");
+    }
+  }
+}
+document.getElementById("file").addEventListener("change", function(e){
+  var f=e.target.files[0]; if(!f) return;
+  var rd=new FileReader();
+  rd.onload=function(){
+    try{ var obj=JSON.parse(rd.result); state=merge(emptyState(), obj); persist(); syncNames(); renderTabs(); renderHint(); renderBoard(); toast("Импортировано"); }
+    catch(err){ alert("Не удалось прочитать файл."); }
+  };
+  rd.readAsText(f);
+  e.target.value="";
+});
+
+/* ===================== СТАРТ ===================== */
+function syncNames(){
+  document.getElementById("nameA").value=state.players.A.name;
+  document.getElementById("nameB").value=state.players.B.name;
+}
+if(decodeHash()){ try{ history.replaceState(null,"", location.href); }catch(_){} } // оставляем хэш, но не плодим историю
+syncNames();
+renderTabs();
+renderHint();
+renderBoard();
+</script>
+</body>
+</html>
