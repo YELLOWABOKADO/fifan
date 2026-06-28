@@ -24,6 +24,8 @@
     --gold:#FFD34E;   /* чемпион / точный счёт */
     --col-w:148px;
     --center-w:210px;
+    --late-w:96px;
+    --late-shift:26px;
     --gap:6px;
     --r:10px;
     --disp:'Saira Condensed', system-ui, sans-serif;
@@ -123,6 +125,7 @@
     font-size:10px; color:var(--faint); font-weight:700;
   }
   .lh.center{width:var(--center-w); flex:0 0 var(--center-w)}
+  .lh.QFL,.lh.SFL,.lh.QFR,.lh.SFR{width:var(--late-w); flex:0 0 var(--late-w)}
   .board{display:flex; gap:var(--gap); align-items:stretch; width:max-content}
   .col{
     width:var(--col-w); flex:0 0 var(--col-w);
@@ -132,6 +135,14 @@
     width:var(--center-w); flex:0 0 var(--center-w);
     justify-content:center; gap:12px;
   }
+  .col.QFL,.col.SFL,.col.QFR,.col.SFR{
+    width:var(--late-w); flex:0 0 var(--late-w);
+  }
+  .col.QFL .m,.col.SFL .m,.col.QFR .m,.col.SFR .m{
+    width:var(--col-w);
+  }
+  .col.QFL .m,.col.SFL .m{transform:translateX(calc(var(--late-shift) * -1))}
+  .col.QFR .m,.col.SFR .m{transform:translateX(var(--late-shift))}
 
   /* match card */
   .m{
@@ -203,7 +214,7 @@
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
 
   @media (max-width:560px){
-    :root{--col-w:136px; --center-w:184px}
+    :root{--col-w:136px; --center-w:184px; --late-w:86px; --late-shift:24px}
     .pts{font-size:18px}
   }
 </style>
@@ -657,7 +668,7 @@ function renderBoard(){
   cache.fullB=computeBranch("fullB");
 
   legend.innerHTML = COLUMNS.map(function(c){
-    return '<div class="lh'+(c.cls==="center"?" center":"")+'">'+c.label+'</div>';
+    return '<div class="lh '+c.key+(c.cls==="center"?" center":"")+'">'+c.label+'</div>';
   }).join("");
 
   var compare = state.view==="compare" || state.view==="compareFull";
@@ -666,7 +677,7 @@ function renderBoard(){
     var inner = c.ids.map(function(mid){
       return compare ? matchCardCompare(mid, compareFull) : matchCardEditable(mid, state.view, c.cls==="mir");
     }).join("");
-    return '<div class="col '+c.cls+'">'+inner+'</div>';
+    return '<div class="col '+c.key+' '+c.cls+'">'+inner+'</div>';
   }).join("");
 
   renderHeader();
