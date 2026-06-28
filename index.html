@@ -245,7 +245,14 @@
   .scroll.scoresHidden .cmp-team .flag,
   .scroll.scoresHidden .cmp-team .tn,
   .scroll.scoresHidden .advb{
-    filter:blur(5px); opacity:.42; user-select:none;
+    filter:blur(8px); opacity:.38; user-select:none;
+  }
+  /* флаги выдают цвета даже сквозь блюр — размываем их сильнее */
+  body.scoresHidden .row .flag,
+  body.scoresHidden .cmp-team .flag,
+  .scroll.scoresHidden .row .flag,
+  .scroll.scoresHidden .cmp-team .flag{
+    filter:blur(13px) saturate(.5); opacity:.3;
   }
   body.scoresHidden .tn.win,
   body.scoresHidden .tn.lose,
