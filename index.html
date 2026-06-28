@@ -108,6 +108,7 @@
     border-radius:9px; cursor:pointer; transition:.15s;
   }
   .btn:hover{color:var(--ink); border-color:var(--faint)}
+  .btn.unlock.on{color:#06140F; background:var(--gold); border-color:var(--gold)}
   .btn.danger:hover{color:#ff8b8b; border-color:#5a2a2a}
   .hint{font-size:12px; color:var(--faint); margin-top:8px}
   .hint code{color:var(--muted); font-family:var(--mono)}
@@ -137,6 +138,7 @@
     border:1px solid var(--line); border-radius:var(--r);
     padding:8px 9px 9px; position:relative;
   }
+  .m.locked{opacity:.68}
   .m.final{border-color:#4a4326; background:linear-gradient(180deg,#1b2418,#101a14); padding-top:10px}
   .m.third{border-style:dashed}
   .m-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:7px}
@@ -171,6 +173,7 @@
   }
   .advb:hover{color:var(--ink)}
   .advb.on{color:#06140F; background:var(--cur,var(--A)); border-color:var(--cur,var(--A))}
+  .advb:disabled{opacity:.5; cursor:not-allowed}
 
   /* compare card */
   .m.cmp .cmp-team{display:flex; align-items:center; gap:7px; padding:2px 0; font-size:13px}
@@ -232,6 +235,7 @@
     <div class="tabs" id="tabs"></div>
     <div class="spacer"></div>
     <div class="actions">
+      <button class="btn unlock" id="unlockTab" data-act="unlockTab" hidden>Разблокировать ввод</button>
       <button class="btn savePred" id="savePred" data-act="savePred" hidden>Сохранить прогноз</button>
       <button class="btn" data-act="share">🔗 Ссылка</button>
       <button class="btn" data-act="export">⬇ Экспорт</button>
@@ -325,6 +329,8 @@ var COLUMNS = [
 ];
 
 var SCORING = {advance:1};
+var LOCK_PASSWORDS = {A:"676767", B:"676767", actual:"676767"};
+var UNLOCK_KEY = "wc2026-duel-unlocked-v1";
 
 /* ===================== СОСТОЯНИЕ ===================== */
 var LS_KEY = "wc2026-duel-v1";
@@ -376,9 +382,16 @@ function merge(base, src){
 }
 var state = loadState();
 state.view = "actual";
+var unlocked = loadUnlocked();
 
 function persist(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){}
+}
+function loadUnlocked(){
+  try{ return JSON.parse(sessionStorage.getItem(UNLOCK_KEY)||"{}")||{}; }catch(e){ return {}; }
+}
+function persistUnlocked(){
+  try{ sessionStorage.setItem(UNLOCK_KEY, JSON.stringify(unlocked)); }catch(e){}
 }
 
 /* ===================== ЛОГИКА СЕТКИ ===================== */
@@ -390,6 +403,12 @@ function playerKey(branch){
 function isStageBranch(branch){ return branch==="A" || branch==="B"; }
 function isFullBranch(branch){ return branch==="fullA" || branch==="fullB"; }
 function isPredictionBranch(branch){ return isStageBranch(branch) || isFullBranch(branch); }
+function lockKey(branch){ return branch==="actual" ? "actual" : playerKey(branch); }
+function isLockableBranch(branch){ return branch==="actual" || isPredictionBranch(branch); }
+function isUnlocked(branch){
+  var key=lockKey(branch);
+  return !isLockableBranch(branch) || !!unlocked[key];
+}
 
 function getResult(branch, mid){
   if(branch==="actual") return state.actuals[mid];
@@ -496,17 +515,31 @@ function renderTabs(){
 
 function renderHint(){
   var h=document.getElementById("hint");
+  var lockNote = isLockableBranch(state.view) && !isUnlocked(state.view) ? ' <b>Ввод заблокирован.</b>' : '';
   if(state.view==="compare") h.innerHTML='Только просмотр. Цветные плашки — счёт каждого; число справа — +1 за угаданный проход команды.';
-  else if(state.view==="actual") h.innerHTML='Вводишь <code>реальный счёт</code>. Победители двигаются по фактической сетке.';
+  else if(state.view==="actual") h.innerHTML='Вводишь <code>реальный счёт</code>. Победители двигаются по фактической сетке.'+lockNote;
   else if(isFullBranch(state.view)){
     var p=playerKey(state.view);
-    h.innerHTML='Полный прогноз игрока <b style="color:var(--'+p+')">'+escapeHtml(state.players[p].name)+'</b>: можно заполнить всю сетку до финала заранее.';
+    h.innerHTML='Полный прогноз игрока <b style="color:var(--'+p+')">'+escapeHtml(state.players[p].name)+'</b>: можно заполнить всю сетку до финала заранее.'+lockNote;
   }
-  else h.innerHTML='Поэтапный прогноз игрока <b style="color:var(--'+state.view+')">'+escapeHtml(state.players[state.view].name)+'</b>. Следующая стадия откроется после заполнения факта предыдущей стадии.';
+  else h.innerHTML='Поэтапный прогноз игрока <b style="color:var(--'+state.view+')">'+escapeHtml(state.players[state.view].name)+'</b>. Следующая стадия откроется после заполнения факта предыдущей стадии.'+lockNote;
 }
 
 function renderActions(){
-  var btn=document.getElementById("savePred");
+  var unlockBtn=document.getElementById("unlockTab");
+  var saveBtn=document.getElementById("savePred");
+  if(unlockBtn){
+    if(isLockableBranch(state.view)){
+      var open=isUnlocked(state.view);
+      unlockBtn.hidden=false;
+      unlockBtn.classList.toggle("on", open);
+      unlockBtn.textContent=open ? "Заблокировать ввод" : "Разблокировать ввод";
+    } else {
+      unlockBtn.hidden=true;
+      unlockBtn.classList.remove("on");
+    }
+  }
+  var btn=saveBtn;
   if(!btn) return;
   if(isPredictionBranch(state.view)){
     var saved=state.saved[state.view];
@@ -524,11 +557,12 @@ function matchCardEditable(mid, branch, mirror){
   var r=resultApplies(branch, mid, raw, res.top, res.bot) ? raw : {};
   var topT=res.top, botT=res.bot;
   var resolved = topT && botT;
+  var editable = resolved && isUnlocked(branch);
   var isDraw = hasScore(r) && (+r.home===+r.away);
   var owner = playerKey(branch);
   var cur = owner==="A"?"var(--A)":(owner==="B"?"var(--B)":"var(--F)");
   var isFinal = m.round==="FINAL", isThird=m.round==="3RD";
-  var cls="m"+(isFinal?" final":"")+(isThird?" third":"");
+  var cls="m"+(isFinal?" final":"")+(isThird?" third":"")+(!isUnlocked(branch)?" locked":"");
 
   function teamRow(slotCode, teamCode, pos){
     var label = teamCode ? TEAMS[teamCode].n : slotLabel(slotCode);
@@ -543,7 +577,7 @@ function matchCardEditable(mid, branch, mirror){
       '<span class="'+nameCls+'">'+escapeHtml(label)+'</span>'+
       '<input class="score" inputmode="numeric" maxlength="2" placeholder="·" '+
         'style="--cur:'+cur+'" data-mid="'+mid+'" data-field="'+field+'" data-branch="'+branch+'" '+
-        (resolved?"":"disabled")+' value="'+sval+'">'+
+        (editable?"":"disabled")+' value="'+sval+'">'+
     '</div>';
   }
 
@@ -556,9 +590,10 @@ function matchCardEditable(mid, branch, mirror){
 
   if(resolved && isDraw){
     var advTop=r.adv==="top", advBot=r.adv==="bottom";
+    var lockAttr=editable?"":" disabled";
     html+='<div class="adv"><span class="lbl">пен:</span>'+
-      '<button class="advb '+(advTop?"on":"")+'" style="--cur:'+cur+'" data-adv="top" data-mid="'+mid+'" data-branch="'+branch+'">'+escapeHtml(TEAMS[topT].n)+'</button>'+
-      '<button class="advb '+(advBot?"on":"")+'" style="--cur:'+cur+'" data-adv="bottom" data-mid="'+mid+'" data-branch="'+branch+'">'+escapeHtml(TEAMS[botT].n)+'</button>'+
+      '<button class="advb '+(advTop?"on":"")+'" style="--cur:'+cur+'" data-adv="top" data-mid="'+mid+'" data-branch="'+branch+'"'+lockAttr+'>'+escapeHtml(TEAMS[topT].n)+'</button>'+
+      '<button class="advb '+(advBot?"on":"")+'" style="--cur:'+cur+'" data-adv="bottom" data-mid="'+mid+'" data-branch="'+branch+'"'+lockAttr+'>'+escapeHtml(TEAMS[botT].n)+'</button>'+
     '</div>';
   }
   html+='</div>';
@@ -664,6 +699,7 @@ function ensureRec(branch, mid){
 document.addEventListener("input", function(e){
   var t=e.target;
   if(t.classList.contains("score")){
+    if(!isUnlocked(t.dataset.branch)){ t.value=""; rerenderKeepFocus(); return; }
     var v=t.value.replace(/[^0-9]/g,"").slice(0,2);
     t.value=v;
     var rec=ensureRec(t.dataset.branch, t.dataset.mid);
@@ -684,6 +720,7 @@ document.addEventListener("click", function(e){
     state.view=t.dataset.view; persist();
     renderTabs(); renderHint(); renderBoard();
   } else if(t.dataset.adv){
+    if(!isUnlocked(t.dataset.branch)){ toast("Сначала разблокируй ввод"); return; }
     var rec=ensureRec(t.dataset.branch, t.dataset.mid);
     rec.adv = (rec.adv===t.dataset.adv) ? null : t.dataset.adv;
     var br=cache[t.dataset.branch] && cache[t.dataset.branch][t.dataset.mid];
@@ -719,7 +756,26 @@ function buildShareUrl(){
   return base+"#d="+encodeURIComponent(b64);
 }
 function doAction(act){
-  if(act==="savePred"){
+  if(act==="unlockTab"){
+    if(!isLockableBranch(state.view)) return;
+    var key=lockKey(state.view);
+    if(unlocked[key]){
+      delete unlocked[key];
+      persistUnlocked();
+      renderHint(); renderBoard();
+      toast("Ввод заблокирован");
+      return;
+    }
+    var pass=prompt("Пароль для разблокировки ввода:");
+    if(pass===LOCK_PASSWORDS[key]){
+      unlocked[key]=true;
+      persistUnlocked();
+      renderHint(); renderBoard();
+      toast("Ввод разблокирован");
+    } else if(pass!==null){
+      toast("Неверный пароль");
+    }
+  } else if(act==="savePred"){
     if(!isPredictionBranch(state.view)) return;
     var now=new Date();
     state.saved[state.view]=now.toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
