@@ -115,6 +115,22 @@
   .btn:hover{color:var(--ink); border-color:var(--faint)}
   .btn.unlock.on{color:#06140F; background:var(--gold); border-color:var(--gold)}
   .btn.danger:hover{color:#ff8b8b; border-color:#5a2a2a}
+  .eyeBtn{width:38px; height:38px; padding:0; display:grid; place-items:center}
+  .eyeIcon{
+    width:18px; height:11px; border:2px solid currentColor; border-radius:50%;
+    position:relative; display:block;
+  }
+  .eyeIcon::before{
+    content:""; position:absolute; width:5px; height:5px; border-radius:50%;
+    background:currentColor; left:50%; top:50%; transform:translate(-50%,-50%);
+  }
+  .eyeIcon::after{
+    content:""; position:absolute; width:24px; height:2px; border-radius:99px;
+    background:var(--gold); left:50%; top:50%; transform:translate(-50%,-50%) rotate(-35deg);
+    opacity:0;
+  }
+  .eyeBtn.on{color:#06140F; background:var(--gold); border-color:var(--gold)}
+  .eyeBtn.on .eyeIcon::after{background:#06140F; opacity:1}
   .cloudStatus{
     align-self:center; color:var(--faint); font-size:11px; font-family:var(--mono);
     padding:0 2px; white-space:nowrap;
@@ -209,6 +225,13 @@
   .pill .tag{font-family:var(--disp); font-weight:700; font-size:9.5px; letter-spacing:.04em; text-transform:uppercase; width:46px; flex:0 0 46px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .pill.a .tag{color:var(--A)} .pill.b .tag{color:var(--B)} .pill.f .tag{color:var(--F)}
   .pill .sc{font-family:var(--mono); font-size:12px; color:var(--ink)}
+  body.scoresHidden .score{font-family:var(--mono)}
+  body.scoresHidden .pill .sc.scored{
+    min-width:28px; color:transparent; position:relative;
+  }
+  body.scoresHidden .pill .sc.scored::after{
+    content:"••"; color:var(--muted); position:absolute; left:0; top:0;
+  }
   .pill .gain{margin-left:auto; font-family:var(--mono); font-size:11px; padding:1px 6px; border-radius:99px; border:1px solid var(--line); color:var(--muted)}
   .pill .gain.p{color:#06140F; background:var(--A); border-color:var(--A); font-weight:700}
   .pill.b .gain.p{background:var(--B); border-color:var(--B)}
@@ -267,6 +290,7 @@
     <div class="actions">
       <button class="btn unlock" id="unlockTab" data-act="unlockTab" hidden>Разблокировать ввод</button>
       <button class="btn savePred" id="savePred" data-act="savePred" hidden>Сохранить прогноз</button>
+      <button class="btn eyeBtn" id="scoreSpoiler" data-act="toggleScores" title="Скрыть счета" aria-label="Скрыть счета"><span class="eyeIcon"></span></button>
       <span class="cloudStatus" id="cloudStatus">облако: —</span>
       <button class="btn danger" data-act="reset">Сброс</button>
     </div>
@@ -359,6 +383,7 @@ var SCORING = {advance:1};
 var LOCK_PASSWORDS = {A:"676767", B:"676767", actual:"676767"};
 var RESET_PASSWORD = "067167267";
 var UNLOCK_KEY = "wc2026-duel-unlocked-v1";
+var SCORE_SPOILER_KEY = "wc2026-duel-score-spoiler-v1";
 var CLOUD_DATABASE_URL = "https://fifan-dca3c-default-rtdb.firebaseio.com";
 var CLOUD_ROOM_PATH = "rooms/fifan-2026";
 var CLOUD_META_KEY = "wc2026-duel-cloud-meta-v1";
@@ -417,6 +442,7 @@ function merge(base, src){
 var state = loadState();
 state.view = "actual";
 var unlocked = loadUnlocked();
+var scoresHidden = loadScoreSpoiler();
 
 function persist(opts){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){}
@@ -427,6 +453,15 @@ function loadUnlocked(){
 }
 function persistUnlocked(){
   try{ sessionStorage.setItem(UNLOCK_KEY, JSON.stringify(unlocked)); }catch(e){}
+}
+function loadScoreSpoiler(){
+  try{ return localStorage.getItem(SCORE_SPOILER_KEY)==="1"; }catch(e){ return false; }
+}
+function persistScoreSpoiler(){
+  try{ localStorage.setItem(SCORE_SPOILER_KEY, scoresHidden?"1":"0"); }catch(e){}
+}
+function applyScoreSpoiler(){
+  document.body.classList.toggle("scoresHidden", scoresHidden);
 }
 
 /* ===================== ЛОГИКА СЕТКИ ===================== */
@@ -571,6 +606,7 @@ function renderHint(){
 function renderActions(){
   var unlockBtn=document.getElementById("unlockTab");
   var saveBtn=document.getElementById("savePred");
+  var eyeBtn=document.getElementById("scoreSpoiler");
   if(unlockBtn){
     if(isLockableBranch(state.view)){
       var open=isUnlocked(state.view);
@@ -581,6 +617,11 @@ function renderActions(){
       unlockBtn.hidden=true;
       unlockBtn.classList.remove("on");
     }
+  }
+  if(eyeBtn){
+    eyeBtn.classList.toggle("on", scoresHidden);
+    eyeBtn.title=scoresHidden ? "Показать счета" : "Скрыть счета";
+    eyeBtn.setAttribute("aria-label", eyeBtn.title);
   }
   var btn=saveBtn;
   if(!btn) return;
@@ -618,7 +659,7 @@ function matchCardEditable(mid, branch, mirror){
     var field = (pos==="top")?"home":"away";
     return '<div class="row">'+flagImg(teamCode)+
       '<span class="'+nameCls+'">'+escapeHtml(label)+'</span>'+
-      '<input class="score" inputmode="numeric" maxlength="2" placeholder="·" '+
+      '<input class="score" type="'+(scoresHidden?"password":"text")+'" inputmode="numeric" maxlength="2" placeholder="·" autocomplete="off" '+
         'style="--cur:'+cur+'" data-mid="'+mid+'" data-field="'+field+'" data-branch="'+branch+'" '+
         (editable?"":"disabled")+' value="'+sval+'">'+
     '</div>';
@@ -670,14 +711,14 @@ function matchCardCompare(mid, fullMode){
     var branchRes=branchKey==="A"?A:(branchKey==="B"?B:ares);
     var r=resultApplies(realBranch, mid, raw, branchRes[mid].top, branchRes[mid].bot) ? raw : null;
     var has=hasScore(r);
-    var sc = has ? (r.home+":"+r.away) : "—";
+    var sc = has ? (scoresHidden ? "••" : (r.home+":"+r.away)) : "—";
     var tag = branchKey==="A"?state.players.A.name : (branchKey==="B"?state.players.B.name:"Факт");
     var gain="";
     if(branchKey!=="f" && actScored){
       var pts=pointsForMatch(branchKey, branchKey==="A"?A:B, ares, mid);
       gain='<span class="gain '+(pts>0?"p":"")+'">'+(pts>0?"+":"")+pts+'</span>';
     }
-    return '<div class="pill '+css+'"><span class="tag">'+escapeHtml(tag)+'</span><span class="sc">'+sc+'</span>'+gain+'</div>';
+    return '<div class="pill '+css+'"><span class="tag">'+escapeHtml(tag)+'</span><span class="sc '+(has?"scored":"")+'">'+sc+'</span>'+gain+'</div>';
   }
   html+='<div class="pills">';
   html+=pill("A","a");
@@ -1006,6 +1047,12 @@ function doAction(act){
     flushCloudSave();
     var p=playerKey(state.view);
     toast("Прогноз "+state.players[p].name+" сохранён");
+  } else if(act==="toggleScores"){
+    scoresHidden=!scoresHidden;
+    persistScoreSpoiler();
+    applyScoreSpoiler();
+    renderActions();
+    renderBoard();
   } else if(act==="reset"){
     var resetPass=prompt("Пароль для сброса:");
     if(resetPass!==RESET_PASSWORD){
@@ -1029,6 +1076,7 @@ function syncNames(){
 }
 var startedFromHash = !!decodeHash();
 if(startedFromHash){ try{ history.replaceState(null,"", location.href); }catch(_){} } // оставляем хэш, но не плодим историю
+applyScoreSpoiler();
 syncNames();
 renderTabs();
 renderHint();
