@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="FIFA 2026 trophy icon">
+  <defs>
+    <linearGradient id="gold" x1="20" x2="44" y1="10" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff2a8"/>
+      <stop offset=".28" stop-color="#ffd447"/>
+      <stop offset=".62" stop-color="#b98016"/>
+      <stop offset="1" stop-color="#ffe173"/>
+    </linearGradient>
+    <linearGradient id="shade" x1="24" x2="42" y1="14" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff7bf" stop-opacity=".9"/>
+      <stop offset=".5" stop-color="#d19a1e" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#6e4c0a" stop-opacity=".45"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="#050b09"/>
+  <rect x="14" y="9" width="36" height="13" rx="7" fill="#f6faf6"/>
+  <rect x="14" y="26" width="36" height="13" rx="7" fill="#f6faf6"/>
+  <rect x="14" y="43" width="36" height="13" rx="7" fill="#f6faf6"/>
+  <path fill="url(#gold)" d="M32 13c-5.6 0-10.2 3.5-10.2 8 0 2.8 1.7 5.3 4.4 6.8-.5 3.6-.9 7.8-1 11.1h13.6c-.1-3.3-.5-7.5-1-11.1 2.7-1.5 4.4-4 4.4-6.8 0-4.5-4.6-8-10.2-8Z"/>
+  <path fill="url(#shade)" d="M26.1 19.3c2.2-2.9 7.3-3.6 10.7-1.6-4.1.2-6.1 2.2-7.4 5.8-.9 2.5-1.6 6-2.1 10.6-2.2-1.7-3.6-4.9-3.4-8 .1-2.6.8-4.9 2.2-6.8Z"/>
+  <path fill="#7f5a12" d="M24 38h16l-2.6 6.4H26.6L24 38Z"/>
+  <path fill="#d59b21" d="M22 43h20l3.2 5.4H18.8L22 43Z"/>
+  <path fill="#1b241f" d="M23.4 49.2h17.2v3.6H23.4z"/>
+  <text x="32" y="52" text-anchor="middle" font-family="Arial, sans-serif" font-size="6.8" font-weight="800" fill="#f6faf6">26</text>
+</svg>
