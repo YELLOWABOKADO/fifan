@@ -178,7 +178,6 @@
   .pill .sc{font-family:var(--mono); font-size:13px; color:var(--ink)}
   .pill .gain{margin-left:auto; font-family:var(--mono); font-size:12px; padding:1px 7px; border-radius:99px; border:1px solid var(--line); color:var(--muted)}
   .pill .gain.p{color:#06140F; background:var(--A); border-color:var(--A); font-weight:700}
-  .pill .gain.exact{background:var(--gold); border-color:var(--gold)}
   .pill.b .gain.p{background:var(--B); border-color:var(--B)}
   .cmp-wait{color:var(--faint); font-size:11.5px; font-style:italic; padding-top:6px}
 
@@ -241,11 +240,8 @@
   <details class="help">
     <summary>Как считаются очки</summary>
     <ul>
-      <li><b>Точный счёт</b> — 4</li>
-      <li><b>Верный исход + разница мячей</b> — 3</li>
-      <li><b>Верный исход</b> (кто прошёл дальше) — 2</li>
-      <li><b>Бонус «угадал пару»</b> — +1 (обе команды матча совпали с фактом)</li>
-      <li><b>Бонус «чемпион»</b> — +5 (угадан победитель финала)</li>
+      <li><b>Угадан проход команды</b> — +1</li>
+      <li>Счёт матча нужен только для определения, кто проходит дальше.</li>
       <li>При ничьей в основное время выбери, кто проходит по пенальти — это двигает сетку дальше.</li>
     </ul>
   </details>
@@ -324,7 +320,7 @@ var COLUMNS = [
   {key:"R32R", label:"1/16", cls:"mir", ids:["M76","M78","M79","M80","M86","M88","M85","M87"]}
 ];
 
-var SCORING = {exact:4, diff:3, tendency:2, matchup:1, champion:5};
+var SCORING = {advance:1};
 
 /* ===================== СОСТОЯНИЕ ===================== */
 var LS_KEY = "wc2026-duel-v1";
@@ -413,29 +409,14 @@ function computeBranch(branch){
 
 /* ===================== ОЧКИ ===================== */
 function pointsForMatch(branch, bres, ares, mid){
-  var act = state.actuals[mid];
-  if(!hasScore(act)) return 0;
-  var pred = getResult(branch, mid);
-  if(!hasScore(pred)) return 0;
-  var ph=+pred.home, pa=+pred.away, ah=+act.home, aa=+act.away;
-  var ps=Math.sign(ph-pa), as=Math.sign(ah-aa);
-  var pts=0;
-  if(ph===ah && pa===aa) pts=SCORING.exact;
-  else if(ps===as && (ph-pa)===(ah-aa)) pts=SCORING.diff;
-  else if(ps===as) pts=SCORING.tendency;
-  if(BYID[mid].round!=="R32"){
-    var pr=bres[mid], ar=ares[mid];
-    if(pr&&ar&&pr.top&&pr.bot&&ar.top&&ar.bot){
-      if((pr.top===ar.top&&pr.bot===ar.bot)||(pr.top===ar.bot&&pr.bot===ar.top)) pts+=SCORING.matchup;
-    }
-  }
-  return pts;
+  var pred = bres[mid];
+  var act = ares[mid];
+  if(!pred || !act || !pred.winner || !act.winner) return 0;
+  return pred.winner===act.winner ? SCORING.advance : 0;
 }
 function totalFor(branch, bres, ares){
   var t=0;
   for(var i=0;i<MATCHES.length;i++){ t += pointsForMatch(branch, bres, ares, MATCHES[i].id); }
-  var fa=ares["M104"], fp=bres["M104"];
-  if(fa&&fa.winner&&fp&&fp.winner&&fa.winner===fp.winner) t+=SCORING.champion;
   return t;
 }
 
@@ -472,7 +453,7 @@ function renderTabs(){
 
 function renderHint(){
   var h=document.getElementById("hint");
-  if(state.view==="compare") h.innerHTML='Только просмотр. Цветные плашки — счёт каждого; число справа — очки за матч.';
+  if(state.view==="compare") h.innerHTML='Только просмотр. Цветные плашки — счёт каждого; число справа — +1 за угаданный проход команды.';
   else if(state.view==="actual") h.innerHTML='Вводишь <code>реальный счёт</code>. Победители двигаются по фактической сетке.';
   else h.innerHTML='Прогноз игрока <b style="color:var(--'+state.view+')">'+escapeHtml(state.players[state.view].name)+'</b>. Победители двигаются по его сетке — сначала заполни 1/16.';
 }
@@ -548,8 +529,7 @@ function matchCardCompare(mid){
     var gain="";
     if(branchKey!=="f" && actScored){
       var pts=pointsForMatch(branchKey, branchKey==="A"?A:B, ares, mid);
-      var exact = has && +r.home===+state.actuals[mid].home && +r.away===+state.actuals[mid].away;
-      gain='<span class="gain '+(pts>0?"p":"")+(exact?" exact":"")+'">'+(pts>0?"+":"")+pts+'</span>';
+      gain='<span class="gain '+(pts>0?"p":"")+'">'+(pts>0?"+":"")+pts+'</span>';
     }
     return '<div class="pill '+css+'"><span class="tag">'+escapeHtml(tag)+'</span><span class="sc">'+sc+'</span>'+gain+'</div>';
   }
