@@ -96,6 +96,8 @@
   .tab.on{color:#06140F; background:var(--ink); border-color:var(--ink)}
   .tab.on[data-view="A"]{background:var(--A); border-color:var(--A)}
   .tab.on[data-view="B"]{background:var(--B); border-color:var(--B)}
+  .tab.on[data-view="fullA"]{background:var(--A); border-color:var(--A)}
+  .tab.on[data-view="fullB"]{background:var(--B); border-color:var(--B)}
   .tab.on[data-view="actual"]{background:var(--F); border-color:var(--F)}
   .tab.on[data-view="compare"]{background:var(--gold); border-color:var(--gold)}
   .spacer{flex:1 1 auto}
@@ -230,6 +232,7 @@
     <div class="tabs" id="tabs"></div>
     <div class="spacer"></div>
     <div class="actions">
+      <button class="btn savePred" id="savePred" data-act="savePred" hidden>Сохранить прогноз</button>
       <button class="btn" data-act="share">🔗 Ссылка</button>
       <button class="btn" data-act="export">⬇ Экспорт</button>
       <button class="btn" data-act="import">⬆ Импорт</button>
@@ -328,11 +331,13 @@ var LS_KEY = "wc2026-duel-v1";
 
 function emptyState(){
   return {
-    v:1,
+    v:2,
     players:{A:{name:"Гена"}, B:{name:"Сергей"}},
     predictions:{A:{}, B:{}},
+    fullPredictions:{A:{}, B:{}},
     actuals:{},
-    view:"A"
+    saved:{A:null, B:null, fullA:null, fullB:null},
+    view:"actual"
   };
 }
 function decodeHash(){
@@ -357,20 +362,53 @@ function merge(base, src){
   if(!src || typeof src!=="object") return base;
   if(src.players){ if(src.players.A&&src.players.A.name) base.players.A.name=String(src.players.A.name); if(src.players.B&&src.players.B.name) base.players.B.name=String(src.players.B.name); }
   if(src.predictions){ base.predictions.A = src.predictions.A||{}; base.predictions.B = src.predictions.B||{}; }
+  if(src.fullPredictions){
+    base.fullPredictions.A = src.fullPredictions.A||{};
+    base.fullPredictions.B = src.fullPredictions.B||{};
+  } else if(src.predictions){
+    base.fullPredictions.A = JSON.parse(JSON.stringify(src.predictions.A||{}));
+    base.fullPredictions.B = JSON.parse(JSON.stringify(src.predictions.B||{}));
+  }
   if(src.actuals) base.actuals = src.actuals;
+  if(src.saved) base.saved = Object.assign(base.saved, src.saved);
   if(src.view) base.view = src.view;
   return base;
 }
 var state = loadState();
+state.view = "actual";
 
 function persist(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){}
 }
 
 /* ===================== ЛОГИКА СЕТКИ ===================== */
+function playerKey(branch){
+  if(branch==="A"||branch==="fullA") return "A";
+  if(branch==="B"||branch==="fullB") return "B";
+  return null;
+}
+function isStageBranch(branch){ return branch==="A" || branch==="B"; }
+function isFullBranch(branch){ return branch==="fullA" || branch==="fullB"; }
+function isPredictionBranch(branch){ return isStageBranch(branch) || isFullBranch(branch); }
+
 function getResult(branch, mid){
   if(branch==="actual") return state.actuals[mid];
+  if(isFullBranch(branch)) return state.fullPredictions[playerKey(branch)][mid];
   return state.predictions[branch][mid];
+}
+function setResultMeta(branch, mid, top, bot){
+  if(!isStageBranch(branch)) return;
+  var r=getResult(branch, mid);
+  if(!r) return;
+  r.top=top||null;
+  r.bot=bot||null;
+}
+function resultApplies(branch, mid, r, top, bot){
+  if(!r) return false;
+  if(!isStageBranch(branch)) return true;
+  if(BYID[mid].round==="R32") return true;
+  if(!r.top || !r.bot) return false;
+  return r.top===top && r.bot===bot;
 }
 function hasScore(r){
   if(!r) return false;
@@ -389,13 +427,15 @@ function slotLabel(code){
   if(code.charAt(0)==="W") return "Побед. "+("M"+code.slice(1));
   return code;
 }
-function computeBranch(branch){
+function computeBranch(branch, slotOut){
   var out = {};
   for(var i=0;i<MATCHES.length;i++){
     var m = MATCHES[i];
-    var top = slotTeam(m.top, out);
-    var bot = slotTeam(m.bottom, out);
-    var r = getResult(branch, m.id);
+    var slots = slotOut || out;
+    var top = slotTeam(m.top, slots);
+    var bot = slotTeam(m.bottom, slots);
+    var raw = getResult(branch, m.id);
+    var r = resultApplies(branch, m.id, raw, top, bot) ? raw : null;
     var winner=null, loser=null;
     if(top && bot && hasScore(r)){
       var h=+r.home, a=+r.away;
@@ -424,7 +464,7 @@ function totalFor(branch, bres, ares){
 /* ===================== РЕНДЕР ===================== */
 var board = document.getElementById("board");
 var legend = document.getElementById("legend");
-var cache = {A:null, B:null, actual:null};
+var cache = {A:null, B:null, fullA:null, fullB:null, actual:null};
 
 function fmtDate(dt){
   if(!dt) return "—";
@@ -442,9 +482,11 @@ function flagImg(code){
 function renderTabs(){
   var t = document.getElementById("tabs");
   var defs = [
+    {v:"actual", label:"Факт"},
     {v:"A", label:state.players.A.name},
     {v:"B", label:state.players.B.name},
-    {v:"actual", label:"Факт"},
+    {v:"fullA", label:state.players.A.name+" весь"},
+    {v:"fullB", label:state.players.B.name+" весь"},
     {v:"compare", label:"Сравнение"}
   ];
   t.innerHTML = defs.map(function(d){
@@ -456,17 +498,35 @@ function renderHint(){
   var h=document.getElementById("hint");
   if(state.view==="compare") h.innerHTML='Только просмотр. Цветные плашки — счёт каждого; число справа — +1 за угаданный проход команды.';
   else if(state.view==="actual") h.innerHTML='Вводишь <code>реальный счёт</code>. Победители двигаются по фактической сетке.';
-  else h.innerHTML='Прогноз игрока <b style="color:var(--'+state.view+')">'+escapeHtml(state.players[state.view].name)+'</b>. Победители двигаются по его сетке — сначала заполни 1/16.';
+  else if(isFullBranch(state.view)){
+    var p=playerKey(state.view);
+    h.innerHTML='Полный прогноз игрока <b style="color:var(--'+p+')">'+escapeHtml(state.players[p].name)+'</b>: можно заполнить всю сетку до финала заранее.';
+  }
+  else h.innerHTML='Поэтапный прогноз игрока <b style="color:var(--'+state.view+')">'+escapeHtml(state.players[state.view].name)+'</b>. Следующая стадия откроется после заполнения факта предыдущей стадии.';
+}
+
+function renderActions(){
+  var btn=document.getElementById("savePred");
+  if(!btn) return;
+  if(isPredictionBranch(state.view)){
+    var saved=state.saved[state.view];
+    btn.hidden=false;
+    btn.textContent=saved ? "Сохранить прогноз · "+saved : "Сохранить прогноз";
+  } else {
+    btn.hidden=true;
+  }
 }
 
 function matchCardEditable(mid, branch, mirror){
   var m=BYID[mid];
   var res=cache[branch][mid];
-  var r=getResult(branch, mid) || {};
+  var raw=getResult(branch, mid);
+  var r=resultApplies(branch, mid, raw, res.top, res.bot) ? raw : {};
   var topT=res.top, botT=res.bot;
   var resolved = topT && botT;
   var isDraw = hasScore(r) && (+r.home===+r.away);
-  var cur = branch==="A"?"var(--A)":(branch==="B"?"var(--B)":"var(--F)");
+  var owner = playerKey(branch);
+  var cur = owner==="A"?"var(--A)":(owner==="B"?"var(--B)":"var(--F)");
   var isFinal = m.round==="FINAL", isThird=m.round==="3RD";
   var cls="m"+(isFinal?" final":"")+(isThird?" third":"");
 
@@ -477,7 +537,7 @@ function matchCardEditable(mid, branch, mirror){
       var win = (res.winner && res.winner===teamCode);
       nameCls += win ? " win" : " lose";
     }
-    var sval = (pos==="top") ? (r.home==null?"":r.home) : (r.away==null?"":r.away);
+    var sval = resolved ? ((pos==="top") ? (r.home==null?"":r.home) : (r.away==null?"":r.away)) : "";
     var field = (pos==="top")?"home":"away";
     return '<div class="row">'+flagImg(teamCode)+
       '<span class="'+nameCls+'">'+escapeHtml(label)+'</span>'+
@@ -523,7 +583,10 @@ function matchCardCompare(mid){
 
   var actScored=hasScore(state.actuals[mid]);
   function pill(branchKey, css){
-    var r=getResult(branchKey==="f"?"actual":branchKey, mid);
+    var realBranch=branchKey==="f"?"actual":branchKey;
+    var raw=getResult(realBranch, mid);
+    var branchRes=branchKey==="A"?A:(branchKey==="B"?B:ares);
+    var r=resultApplies(realBranch, mid, raw, branchRes[mid].top, branchRes[mid].bot) ? raw : null;
     var has=hasScore(r);
     var sc = has ? (r.home+":"+r.away) : "—";
     var tag = branchKey==="A"?state.players.A.name : (branchKey==="B"?state.players.B.name:"Факт");
@@ -544,7 +607,11 @@ function matchCardCompare(mid){
 }
 
 function renderBoard(){
-  cache.A=computeBranch("A"); cache.B=computeBranch("B"); cache.actual=computeBranch("actual");
+  cache.actual=computeBranch("actual");
+  cache.A=computeBranch("A", cache.actual);
+  cache.B=computeBranch("B", cache.actual);
+  cache.fullA=computeBranch("fullA");
+  cache.fullB=computeBranch("fullB");
 
   legend.innerHTML = COLUMNS.map(function(c){
     return '<div class="lh'+(c.cls==="center"?" center":"")+'">'+c.label+'</div>';
@@ -559,10 +626,17 @@ function renderBoard(){
   }).join("");
 
   renderHeader();
+  renderActions();
 }
 
 function renderHeader(){
-  if(!cache.A){ cache.A=computeBranch("A"); cache.B=computeBranch("B"); cache.actual=computeBranch("actual"); }
+  if(!cache.A){
+    cache.actual=computeBranch("actual");
+    cache.A=computeBranch("A", cache.actual);
+    cache.B=computeBranch("B", cache.actual);
+    cache.fullA=computeBranch("fullA");
+    cache.fullB=computeBranch("fullB");
+  }
   var tA=totalFor("A", cache.A, cache.actual);
   var tB=totalFor("B", cache.B, cache.actual);
   document.getElementById("ptsA").textContent=tA;
@@ -582,7 +656,7 @@ function escapeHtml(s){ return String(s).replace(/[&<>"']/g, function(c){ return
 
 /* ===================== ВВОД ===================== */
 function ensureRec(branch, mid){
-  var bag = branch==="actual" ? state.actuals : state.predictions[branch];
+  var bag = branch==="actual" ? state.actuals : (isFullBranch(branch) ? state.fullPredictions[playerKey(branch)] : state.predictions[branch]);
   if(!bag[mid]) bag[mid]={home:"", away:"", adv:null};
   return bag[mid];
 }
@@ -595,6 +669,8 @@ document.addEventListener("input", function(e){
     var rec=ensureRec(t.dataset.branch, t.dataset.mid);
     rec[t.dataset.field]= v==="" ? "" : v;
     if(rec.home!=="" && rec.away!=="" && +rec.home!==+rec.away) rec.adv=null; // не ничья — adv не нужен
+    var br=cache[t.dataset.branch] && cache[t.dataset.branch][t.dataset.mid];
+    if(br) setResultMeta(t.dataset.branch, t.dataset.mid, br.top, br.bot);
     persist();
     rerenderKeepFocus();
   } else if(t.id==="nameA"){ state.players.A.name=t.value||"Гена"; persist(); renderTabs(); renderHeader(); renderHint(); }
@@ -610,6 +686,8 @@ document.addEventListener("click", function(e){
   } else if(t.dataset.adv){
     var rec=ensureRec(t.dataset.branch, t.dataset.mid);
     rec.adv = (rec.adv===t.dataset.adv) ? null : t.dataset.adv;
+    var br=cache[t.dataset.branch] && cache[t.dataset.branch][t.dataset.mid];
+    if(br) setResultMeta(t.dataset.branch, t.dataset.mid, br.top, br.bot);
     persist(); rerenderKeepFocus();
   } else if(t.dataset.act){
     doAction(t.dataset.act);
@@ -641,7 +719,14 @@ function buildShareUrl(){
   return base+"#d="+encodeURIComponent(b64);
 }
 function doAction(act){
-  if(act==="share"){
+  if(act==="savePred"){
+    if(!isPredictionBranch(state.view)) return;
+    var now=new Date();
+    state.saved[state.view]=now.toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    persist(); renderActions();
+    var p=playerKey(state.view);
+    toast("Прогноз "+state.players[p].name+" сохранён");
+  } else if(act==="share"){
     var url=buildShareUrl();
     if(navigator.clipboard && navigator.clipboard.writeText){
       navigator.clipboard.writeText(url).then(function(){toast("Ссылка скопирована");}, function(){ prompt("Скопируй ссылку:", url); });
@@ -668,7 +753,7 @@ document.getElementById("file").addEventListener("change", function(e){
   var f=e.target.files[0]; if(!f) return;
   var rd=new FileReader();
   rd.onload=function(){
-    try{ var obj=JSON.parse(rd.result); state=merge(emptyState(), obj); persist(); syncNames(); renderTabs(); renderHint(); renderBoard(); toast("Импортировано"); }
+    try{ var obj=JSON.parse(rd.result); state=merge(emptyState(), obj); state.view="actual"; persist(); syncNames(); renderTabs(); renderHint(); renderBoard(); toast("Импортировано"); }
     catch(err){ alert("Не удалось прочитать файл."); }
   };
   rd.readAsText(f);
