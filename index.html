@@ -386,6 +386,8 @@ var UNLOCK_KEY = "wc2026-duel-unlocked-v1";
 var SCORE_SPOILER_KEY = "wc2026-duel-score-spoiler-v1";
 var CLOUD_DATABASE_URL = "https://fifan-dca3c-default-rtdb.firebaseio.com";
 var CLOUD_ROOM_PATH = "rooms/fifan-2026";
+var CLOUD_MAIN_PATH = CLOUD_ROOM_PATH + "/main";
+var CLOUD_FULL_PATH = CLOUD_ROOM_PATH + "/full";
 var CLOUD_META_KEY = "wc2026-duel-cloud-meta-v1";
 var CLIENT_KEY = "wc2026-duel-client-id-v1";
 var AUTO_CLOUD_SAVE_MS = 900;
@@ -843,7 +845,16 @@ function toast(msg){
   el.textContent=msg; el.classList.add("show");
   clearTimeout(el._t); el._t=setTimeout(function(){el.classList.remove("show");},1700);
 }
-function cloudUrl(){
+function cloudScopeForView(){
+  return (isFullBranch(state.view) || state.view==="compareFull") ? "full" : "main";
+}
+function cloudPath(scope){
+  return scope==="full" ? CLOUD_FULL_PATH : CLOUD_MAIN_PATH;
+}
+function cloudUrl(scope){
+  return CLOUD_DATABASE_URL.replace(/\/$/,"")+"/"+cloudPath(scope)+".json";
+}
+function legacyCloudUrl(){
   return CLOUD_DATABASE_URL.replace(/\/$/,"")+"/"+CLOUD_ROOM_PATH+".json";
 }
 function getClientId(){
@@ -856,11 +867,22 @@ function getClientId(){
     return id;
   }catch(e){ return "client-unknown"; }
 }
-function getCloudMeta(){
-  try{ return JSON.parse(localStorage.getItem(CLOUD_META_KEY)||"{}")||{}; }catch(e){ return {}; }
+function getCloudMeta(scope){
+  try{
+    var all=JSON.parse(localStorage.getItem(CLOUD_META_KEY)||"{}")||{};
+    if(!scope) return all;
+    if(all[scope]) return all[scope];
+    if(scope==="main" && all.updatedAt) return all;
+    return {};
+  }catch(e){ return {}; }
 }
-function setCloudMeta(meta){
-  try{ localStorage.setItem(CLOUD_META_KEY, JSON.stringify(meta||{})); }catch(e){}
+function setCloudMeta(scope, meta){
+  try{
+    var all=getCloudMeta();
+    if(all.updatedAt) all={main:all};
+    all[scope]=meta||{};
+    localStorage.setItem(CLOUD_META_KEY, JSON.stringify(all));
+  }catch(e){}
 }
 function fmtCloudTime(ts){
   if(!ts) return "—";
@@ -872,21 +894,46 @@ function renderCloudStatus(text, kind){
   if(!el) return;
   el.className="cloudStatus"+(kind?" "+kind:"");
   if(text){ el.textContent=text; return; }
-  var meta=getCloudMeta();
-  el.textContent=meta.updatedAt ? "облако: "+fmtCloudTime(meta.updatedAt) : "облако: —";
+  var scope=cloudScopeForView();
+  var meta=getCloudMeta(scope);
+  var label=scope==="full" ? "общий: " : "облако: ";
+  el.textContent=meta.updatedAt ? label+fmtCloudTime(meta.updatedAt) : label+"—";
 }
-function cloudPayload(){
+function cloudPayload(scope){
+  var data;
+  if(scope==="full"){
+    data={
+      v:state.v || 2,
+      players:state.players,
+      fullPredictions:state.fullPredictions,
+      saved:{fullA:state.saved.fullA, fullB:state.saved.fullB}
+    };
+  } else {
+    data={
+      v:state.v || 2,
+      players:state.players,
+      predictions:state.predictions,
+      actuals:state.actuals,
+      saved:{A:state.saved.A, B:state.saved.B}
+    };
+  }
   return {
-    state: state,
+    state: data,
     updatedAt: Date.now(),
     updatedBy: getClientId(),
-    schema: "wc2026-duel-v2"
+    schema: scope==="full" ? "wc2026-duel-full-v3" : "wc2026-duel-main-v3"
   };
 }
-function fetchCloud(){
-  return fetch(cloudUrl(), {method:"GET", cache:"no-store"}).then(function(res){
+function fetchCloud(scope){
+  return fetch(cloudUrl(scope), {method:"GET", cache:"no-store"}).then(function(res){
     if(!res.ok) throw new Error("cloud read "+res.status);
     return res.json();
+  }).then(function(remote){
+    if(remote) return remote;
+    return fetch(legacyCloudUrl(), {method:"GET", cache:"no-store"}).then(function(res){
+      if(!res.ok) throw new Error("legacy cloud read "+res.status);
+      return res.json();
+    });
   });
 }
 var cloudSaveTimer = null;
@@ -894,26 +941,30 @@ var cloudWriteInFlight = false;
 var cloudSaveQueued = false;
 var cloudLoadInFlight = false;
 var cloudHasPendingSave = false;
+var cloudPendingScope = "main";
 var lastCloudPullAt = 0;
 var cloudAutoSyncEnabled = false;
 
-function scheduleCloudSave(){
+function scheduleCloudSave(scope){
+  cloudPendingScope=scope||cloudScopeForView();
   cloudHasPendingSave=true;
   clearTimeout(cloudSaveTimer);
   cloudSaveTimer=setTimeout(function(){
-    saveCloudState({silent:true, confirmOverwrite:false});
+    saveCloudState({scope:cloudPendingScope, silent:true, confirmOverwrite:false});
   }, AUTO_CLOUD_SAVE_MS);
 }
-function flushCloudSave(){
+function flushCloudSave(scope){
+  cloudPendingScope=scope||cloudScopeForView();
+  cloudHasPendingSave=true;
   clearTimeout(cloudSaveTimer);
-  return saveCloudState({silent:true, confirmOverwrite:false});
+  return saveCloudState({scope:cloudPendingScope, silent:true, confirmOverwrite:false});
 }
 function refreshCloudFromSite(force){
   if(!cloudAutoSyncEnabled || cloudWriteInFlight || cloudHasPendingSave) return Promise.resolve(null);
   var now=Date.now();
   if(!force && now-lastCloudPullAt<1500) return Promise.resolve(null);
   lastCloudPullAt=now;
-  return loadCloudState({auto:true, silent:true});
+  return loadAllCloudState({auto:true, silent:true});
 }
 function setupCloudAutoSync(){
   cloudAutoSyncEnabled=true;
@@ -929,17 +980,41 @@ function setupCloudAutoSync(){
     if(!document.hidden) refreshCloudFromSite(true);
   });
 }
-function applyCloudState(remote, silent){
-  state=merge(emptyState(), remote.state);
-  state.view="actual";
+function applyCloudState(remote, silent, scope){
+  var incoming=remote.state||{};
+  if(incoming.players){
+    if(incoming.players.A&&incoming.players.A.name) state.players.A.name=String(incoming.players.A.name);
+    if(incoming.players.B&&incoming.players.B.name) state.players.B.name=String(incoming.players.B.name);
+  }
+  if(scope==="full"){
+    if(incoming.fullPredictions){
+      state.fullPredictions.A=incoming.fullPredictions.A||{};
+      state.fullPredictions.B=incoming.fullPredictions.B||{};
+    }
+    if(incoming.saved){
+      state.saved.fullA=incoming.saved.fullA||null;
+      state.saved.fullB=incoming.saved.fullB||null;
+    }
+  } else {
+    if(incoming.predictions){
+      state.predictions.A=incoming.predictions.A||{};
+      state.predictions.B=incoming.predictions.B||{};
+    }
+    if(incoming.actuals) state.actuals=incoming.actuals;
+    if(incoming.saved){
+      state.saved.A=incoming.saved.A||null;
+      state.saved.B=incoming.saved.B||null;
+    }
+  }
   persist({cloud:false});
-  setCloudMeta({updatedAt:remote.updatedAt||Date.now(), updatedBy:remote.updatedBy||""});
+  setCloudMeta(scope, {updatedAt:remote.updatedAt||Date.now(), updatedBy:remote.updatedBy||""});
   syncNames(); renderTabs(); renderHint(); renderBoard();
   renderCloudStatus(null, "ok");
   if(!silent) toast("Загружено из облака");
 }
 function saveCloudState(options){
   options=options||{};
+  var scope=options.scope||cloudScopeForView();
   if(cloudWriteInFlight){
     cloudSaveQueued=true;
     return Promise.resolve(null);
@@ -947,21 +1022,22 @@ function saveCloudState(options){
   cloudWriteInFlight=true;
   if(!options.silent) renderCloudStatus("облако: проверка...", "warn");
   else renderCloudStatus("облако: сохранение...", "warn");
-  return fetchCloud().then(function(remote){
-    var meta=getCloudMeta();
+  return fetchCloud(scope).then(function(remote){
+    var meta=getCloudMeta(scope);
     if(remote && remote.updatedAt && (!meta.updatedAt || remote.updatedAt>meta.updatedAt) && remote.updatedBy!==getClientId()){
-      if(options.confirmOverwrite===false){
+      if(options.forceOverwrite){
+        // пароль уже введён на уровне действия, можно перезаписывать обе ветки сбросом
+      } else if(options.confirmOverwrite===false){
         renderCloudStatus("облако: конфликт", "err");
         if(!options.silent) toast("В облаке есть более свежие данные");
         return null;
-      }
-      if(!confirm("В облаке есть более свежие данные. Перезаписать их текущими локальными?")){
+      } else if(!confirm("В облаке есть более свежие данные. Перезаписать их текущими локальными?")){
         renderCloudStatus("облако: отменено", "warn");
         return null;
       }
     }
-    var payload=cloudPayload();
-    return fetch(cloudUrl(), {
+    var payload=cloudPayload(scope);
+    return fetch(cloudUrl(scope), {
       method:"PUT",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify(payload)
@@ -969,7 +1045,7 @@ function saveCloudState(options){
       if(!res.ok) throw new Error("cloud write "+res.status);
       return res.json();
     }).then(function(saved){
-      setCloudMeta({updatedAt:saved.updatedAt, updatedBy:saved.updatedBy});
+      setCloudMeta(scope, {updatedAt:saved.updatedAt, updatedBy:saved.updatedBy});
       cloudHasPendingSave=false;
       renderCloudStatus("облако: "+fmtCloudTime(saved.updatedAt), "ok");
       if(!options.silent) toast("Сохранено в облако");
@@ -983,23 +1059,24 @@ function saveCloudState(options){
     cloudWriteInFlight=false;
     if(cloudSaveQueued){
       cloudSaveQueued=false;
-      scheduleCloudSave();
+      scheduleCloudSave(cloudPendingScope);
     }
   });
 }
 function loadCloudState(options){
   options=options||{};
+  var scope=options.scope||cloudScopeForView();
   if(options.auto && (cloudWriteInFlight || cloudHasPendingSave)) return Promise.resolve(null);
   if(cloudLoadInFlight) return Promise.resolve(null);
   cloudLoadInFlight=true;
   if(!options.silent) renderCloudStatus("облако: загрузка...", "warn");
-  return fetchCloud().then(function(remote){
+  return fetchCloud(scope).then(function(remote){
     if(!remote || !remote.state){
       renderCloudStatus("облако: пусто", "warn");
       if(!options.silent) toast("В облаке пока пусто");
       return null;
     }
-    var meta=getCloudMeta();
+    var meta=getCloudMeta(scope);
     var isFreshRemote = remote.updatedAt && (!meta.updatedAt || remote.updatedAt>meta.updatedAt);
     var isOwnRemote = remote.updatedBy && remote.updatedBy===getClientId();
     if(options.auto && (!isFreshRemote || isOwnRemote)){
@@ -1011,9 +1088,34 @@ function loadCloudState(options){
       return null;
     }
     clearTimeout(cloudSaveTimer);
-    applyCloudState(remote, options.silent || options.auto);
+    applyCloudState(remote, options.silent || options.auto, scope);
     if(options.auto && !options.silent) toast("Обновлено из облака");
     return remote;
+  }).catch(function(err){
+    console.error(err);
+    renderCloudStatus("облако: ошибка", "err");
+    if(!options.silent) toast("Ошибка облака");
+  }).finally(function(){
+    cloudLoadInFlight=false;
+  });
+}
+function loadAllCloudState(options){
+  options=options||{};
+  if(cloudLoadInFlight) return Promise.resolve(null);
+  cloudLoadInFlight=true;
+  return Promise.all(["main","full"].map(function(scope){
+    return fetchCloud(scope).then(function(remote){
+      if(!remote || !remote.state) return null;
+      var meta=getCloudMeta(scope);
+      var isFreshRemote = remote.updatedAt && (!meta.updatedAt || remote.updatedAt>meta.updatedAt);
+      var isOwnRemote = remote.updatedBy && remote.updatedBy===getClientId();
+      if(options.auto && (!isFreshRemote || isOwnRemote)) return remote;
+      applyCloudState(remote, true, scope);
+      return remote;
+    });
+  })).then(function(result){
+    renderCloudStatus(null, "ok");
+    return result;
   }).catch(function(err){
     console.error(err);
     renderCloudStatus("облако: ошибка", "err");
@@ -1063,8 +1165,12 @@ function doAction(act){
       return;
     }
     if(confirm("Сбросить все прогнозы и результаты?")){
-      state=emptyState(); persist();
-      setCloudMeta({});
+      state=emptyState(); persist({cloud:false});
+      setCloudMeta("main", {});
+      setCloudMeta("full", {});
+      saveCloudState({scope:"main", silent:true, forceOverwrite:true}).then(function(){
+        return saveCloudState({scope:"full", silent:true, forceOverwrite:true});
+      });
       try{ history.replaceState(null,"", location.href.split("#")[0]); }catch(_){}
       syncNames(); renderTabs(); renderHint(); renderBoard();
       toast("Сброшено");
