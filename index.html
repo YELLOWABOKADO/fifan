@@ -113,6 +113,13 @@
   .btn:hover{color:var(--ink); border-color:var(--faint)}
   .btn.unlock.on{color:#06140F; background:var(--gold); border-color:var(--gold)}
   .btn.danger:hover{color:#ff8b8b; border-color:#5a2a2a}
+  .cloudStatus{
+    align-self:center; color:var(--faint); font-size:11px; font-family:var(--mono);
+    padding:0 2px; white-space:nowrap;
+  }
+  .cloudStatus.ok{color:var(--A)}
+  .cloudStatus.warn{color:var(--B)}
+  .cloudStatus.err{color:#ff8b8b}
   .hint{font-size:12px; color:var(--faint); margin-top:8px}
   .hint code{color:var(--muted); font-family:var(--mono)}
 
@@ -252,6 +259,9 @@
       <button class="btn" data-act="share">🔗 Ссылка</button>
       <button class="btn" data-act="export">⬇ Экспорт</button>
       <button class="btn" data-act="import">⬆ Импорт</button>
+      <button class="btn" data-act="loadCloud">Облако ↓</button>
+      <button class="btn" data-act="saveCloud">Облако ↑</button>
+      <span class="cloudStatus" id="cloudStatus">облако: —</span>
       <button class="btn danger" data-act="reset">Сброс</button>
       <input type="file" id="file" accept="application/json" hidden>
     </div>
@@ -344,6 +354,10 @@ var SCORING = {advance:1};
 var LOCK_PASSWORDS = {A:"676767", B:"676767", actual:"676767"};
 var RESET_PASSWORD = "067167267";
 var UNLOCK_KEY = "wc2026-duel-unlocked-v1";
+var CLOUD_DATABASE_URL = "https://fifan-dca3c-default-rtdb.firebaseio.com";
+var CLOUD_ROOM_PATH = "rooms/fifan-2026";
+var CLOUD_META_KEY = "wc2026-duel-cloud-meta-v1";
+var CLIENT_KEY = "wc2026-duel-client-id-v1";
 
 /* ===================== СОСТОЯНИЕ ===================== */
 var LS_KEY = "wc2026-duel-v1";
@@ -777,6 +791,108 @@ function buildShareUrl(){
   var base=location.href.split("#")[0];
   return base+"#d="+encodeURIComponent(b64);
 }
+function cloudUrl(){
+  return CLOUD_DATABASE_URL.replace(/\/$/,"")+"/"+CLOUD_ROOM_PATH+".json";
+}
+function getClientId(){
+  try{
+    var id=localStorage.getItem(CLIENT_KEY);
+    if(!id){
+      id="client-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,8);
+      localStorage.setItem(CLIENT_KEY,id);
+    }
+    return id;
+  }catch(e){ return "client-unknown"; }
+}
+function getCloudMeta(){
+  try{ return JSON.parse(localStorage.getItem(CLOUD_META_KEY)||"{}")||{}; }catch(e){ return {}; }
+}
+function setCloudMeta(meta){
+  try{ localStorage.setItem(CLOUD_META_KEY, JSON.stringify(meta||{})); }catch(e){}
+}
+function fmtCloudTime(ts){
+  if(!ts) return "—";
+  try{ return new Date(ts).toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}); }
+  catch(e){ return "—"; }
+}
+function renderCloudStatus(text, kind){
+  var el=document.getElementById("cloudStatus");
+  if(!el) return;
+  el.className="cloudStatus"+(kind?" "+kind:"");
+  if(text){ el.textContent=text; return; }
+  var meta=getCloudMeta();
+  el.textContent=meta.updatedAt ? "облако: "+fmtCloudTime(meta.updatedAt) : "облако: —";
+}
+function cloudPayload(){
+  return {
+    state: state,
+    updatedAt: Date.now(),
+    updatedBy: getClientId(),
+    schema: "wc2026-duel-v2"
+  };
+}
+function fetchCloud(){
+  return fetch(cloudUrl(), {method:"GET", cache:"no-store"}).then(function(res){
+    if(!res.ok) throw new Error("cloud read "+res.status);
+    return res.json();
+  });
+}
+function saveCloudState(){
+  renderCloudStatus("облако: проверка...", "warn");
+  return fetchCloud().then(function(remote){
+    var meta=getCloudMeta();
+    if(remote && remote.updatedAt && meta.updatedAt && remote.updatedAt>meta.updatedAt && remote.updatedBy!==getClientId()){
+      if(!confirm("В облаке есть более свежие данные. Перезаписать их текущими локальными?")){
+        renderCloudStatus("облако: отменено", "warn");
+        return null;
+      }
+    }
+    var payload=cloudPayload();
+    return fetch(cloudUrl(), {
+      method:"PUT",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(payload)
+    }).then(function(res){
+      if(!res.ok) throw new Error("cloud write "+res.status);
+      return res.json();
+    }).then(function(saved){
+      setCloudMeta({updatedAt:saved.updatedAt, updatedBy:saved.updatedBy});
+      renderCloudStatus("облако: "+fmtCloudTime(saved.updatedAt), "ok");
+      toast("Сохранено в облако");
+      return saved;
+    });
+  }).catch(function(err){
+    console.error(err);
+    renderCloudStatus("облако: ошибка", "err");
+    toast("Ошибка облака");
+  });
+}
+function loadCloudState(){
+  renderCloudStatus("облако: загрузка...", "warn");
+  return fetchCloud().then(function(remote){
+    if(!remote || !remote.state){
+      renderCloudStatus("облако: пусто", "warn");
+      toast("В облаке пока пусто");
+      return null;
+    }
+    if(!confirm("Загрузить данные из облака и заменить локальные?")){
+      renderCloudStatus(null, "");
+      return null;
+    }
+    state=merge(emptyState(), remote.state);
+    state.view="actual";
+    persist();
+    setCloudMeta({updatedAt:remote.updatedAt||Date.now(), updatedBy:remote.updatedBy||""});
+    syncNames(); renderTabs(); renderHint(); renderBoard();
+    renderCloudStatus(null, "ok");
+    toast("Загружено из облака");
+    return remote;
+  }).catch(function(err){
+    console.error(err);
+    renderCloudStatus("облако: ошибка", "err");
+    toast("Ошибка облака");
+  });
+}
 function doAction(act){
   if(act==="unlockTab"){
     if(!isLockableBranch(state.view)) return;
@@ -818,6 +934,10 @@ function doAction(act){
     toast("Экспортировано");
   } else if(act==="import"){
     document.getElementById("file").click();
+  } else if(act==="loadCloud"){
+    loadCloudState();
+  } else if(act==="saveCloud"){
+    saveCloudState();
   } else if(act==="reset"){
     var resetPass=prompt("Пароль для сброса:");
     if(resetPass!==RESET_PASSWORD){
@@ -826,6 +946,7 @@ function doAction(act){
     }
     if(confirm("Сбросить все прогнозы и результаты?")){
       state=emptyState(); persist();
+      setCloudMeta({});
       try{ history.replaceState(null,"", location.href.split("#")[0]); }catch(_){}
       syncNames(); renderTabs(); renderHint(); renderBoard();
       toast("Сброшено");
@@ -836,7 +957,7 @@ document.getElementById("file").addEventListener("change", function(e){
   var f=e.target.files[0]; if(!f) return;
   var rd=new FileReader();
   rd.onload=function(){
-    try{ var obj=JSON.parse(rd.result); state=merge(emptyState(), obj); state.view="actual"; persist(); syncNames(); renderTabs(); renderHint(); renderBoard(); toast("Импортировано"); }
+    try{ var obj=JSON.parse(rd.result); state=merge(emptyState(), obj); state.view="actual"; persist(); setCloudMeta({}); syncNames(); renderTabs(); renderHint(); renderBoard(); toast("Импортировано"); }
     catch(err){ alert("Не удалось прочитать файл."); }
   };
   rd.readAsText(f);
@@ -853,6 +974,7 @@ syncNames();
 renderTabs();
 renderHint();
 renderBoard();
+renderCloudStatus();
 </script>
 </body>
 </html>
