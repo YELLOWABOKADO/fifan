@@ -358,6 +358,8 @@ var CLOUD_DATABASE_URL = "https://fifan-dca3c-default-rtdb.firebaseio.com";
 var CLOUD_ROOM_PATH = "rooms/fifan-2026";
 var CLOUD_META_KEY = "wc2026-duel-cloud-meta-v1";
 var CLIENT_KEY = "wc2026-duel-client-id-v1";
+var AUTO_CLOUD_SAVE_MS = 900;
+var AUTO_CLOUD_PULL_MS = 15000;
 
 /* ===================== СОСТОЯНИЕ ===================== */
 var LS_KEY = "wc2026-duel-v1";
@@ -411,8 +413,9 @@ var state = loadState();
 state.view = "actual";
 var unlocked = loadUnlocked();
 
-function persist(){
+function persist(opts){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){}
+  if(!opts || opts.cloud!==false) scheduleCloudSave();
 }
 function loadUnlocked(){
   try{ return JSON.parse(sessionStorage.getItem(UNLOCK_KEY)||"{}")||{}; }catch(e){ return {}; }
@@ -753,7 +756,7 @@ document.addEventListener("click", function(e){
   var t=e.target.closest("[data-view],[data-adv],[data-act]");
   if(!t) return;
   if(t.dataset.view){
-    state.view=t.dataset.view; persist();
+    state.view=t.dataset.view; persist({cloud:false});
     renderTabs(); renderHint(); renderBoard();
   } else if(t.dataset.adv){
     if(!isUnlocked(t.dataset.branch)){ toast("Сначала разблокируй ввод"); return; }
@@ -837,11 +840,43 @@ function fetchCloud(){
     return res.json();
   });
 }
-function saveCloudState(){
-  renderCloudStatus("облако: проверка...", "warn");
+var cloudSaveTimer = null;
+var cloudWriteInFlight = false;
+var cloudSaveQueued = false;
+var cloudLoadInFlight = false;
+
+function scheduleCloudSave(){
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer=setTimeout(function(){
+    saveCloudState({silent:true, confirmOverwrite:false});
+  }, AUTO_CLOUD_SAVE_MS);
+}
+function applyCloudState(remote, silent){
+  state=merge(emptyState(), remote.state);
+  state.view="actual";
+  persist({cloud:false});
+  setCloudMeta({updatedAt:remote.updatedAt||Date.now(), updatedBy:remote.updatedBy||""});
+  syncNames(); renderTabs(); renderHint(); renderBoard();
+  renderCloudStatus(null, "ok");
+  if(!silent) toast("Загружено из облака");
+}
+function saveCloudState(options){
+  options=options||{};
+  if(cloudWriteInFlight){
+    cloudSaveQueued=true;
+    return Promise.resolve(null);
+  }
+  cloudWriteInFlight=true;
+  if(!options.silent) renderCloudStatus("облако: проверка...", "warn");
+  else renderCloudStatus("облако: сохранение...", "warn");
   return fetchCloud().then(function(remote){
     var meta=getCloudMeta();
-    if(remote && remote.updatedAt && meta.updatedAt && remote.updatedAt>meta.updatedAt && remote.updatedBy!==getClientId()){
+    if(remote && remote.updatedAt && (!meta.updatedAt || remote.updatedAt>meta.updatedAt) && remote.updatedBy!==getClientId()){
+      if(options.confirmOverwrite===false){
+        renderCloudStatus("облако: конфликт", "err");
+        if(!options.silent) toast("В облаке есть более свежие данные");
+        return null;
+      }
       if(!confirm("В облаке есть более свежие данные. Перезаписать их текущими локальными?")){
         renderCloudStatus("облако: отменено", "warn");
         return null;
@@ -858,39 +893,54 @@ function saveCloudState(){
     }).then(function(saved){
       setCloudMeta({updatedAt:saved.updatedAt, updatedBy:saved.updatedBy});
       renderCloudStatus("облако: "+fmtCloudTime(saved.updatedAt), "ok");
-      toast("Сохранено в облако");
+      if(!options.silent) toast("Сохранено в облако");
       return saved;
     });
   }).catch(function(err){
     console.error(err);
     renderCloudStatus("облако: ошибка", "err");
-    toast("Ошибка облака");
+    if(!options.silent) toast("Ошибка облака");
+  }).finally(function(){
+    cloudWriteInFlight=false;
+    if(cloudSaveQueued){
+      cloudSaveQueued=false;
+      scheduleCloudSave();
+    }
   });
 }
-function loadCloudState(){
-  renderCloudStatus("облако: загрузка...", "warn");
+function loadCloudState(options){
+  options=options||{};
+  if(options.auto && cloudWriteInFlight) return Promise.resolve(null);
+  if(cloudLoadInFlight) return Promise.resolve(null);
+  cloudLoadInFlight=true;
+  if(!options.silent) renderCloudStatus("облако: загрузка...", "warn");
   return fetchCloud().then(function(remote){
     if(!remote || !remote.state){
       renderCloudStatus("облако: пусто", "warn");
-      toast("В облаке пока пусто");
+      if(!options.silent) toast("В облаке пока пусто");
       return null;
     }
-    if(!confirm("Загрузить данные из облака и заменить локальные?")){
+    var meta=getCloudMeta();
+    var isFreshRemote = remote.updatedAt && (!meta.updatedAt || remote.updatedAt>meta.updatedAt);
+    var isOwnRemote = remote.updatedBy && remote.updatedBy===getClientId();
+    if(options.auto && (!isFreshRemote || isOwnRemote)){
+      renderCloudStatus(null, "");
+      return remote;
+    }
+    if(!options.auto && !confirm("Загрузить данные из облака и заменить локальные?")){
       renderCloudStatus(null, "");
       return null;
     }
-    state=merge(emptyState(), remote.state);
-    state.view="actual";
-    persist();
-    setCloudMeta({updatedAt:remote.updatedAt||Date.now(), updatedBy:remote.updatedBy||""});
-    syncNames(); renderTabs(); renderHint(); renderBoard();
-    renderCloudStatus(null, "ok");
-    toast("Загружено из облака");
+    clearTimeout(cloudSaveTimer);
+    applyCloudState(remote, options.silent || options.auto);
+    if(options.auto && !options.silent) toast("Обновлено из облака");
     return remote;
   }).catch(function(err){
     console.error(err);
     renderCloudStatus("облако: ошибка", "err");
-    toast("Ошибка облака");
+    if(!options.silent) toast("Ошибка облака");
+  }).finally(function(){
+    cloudLoadInFlight=false;
   });
 }
 function doAction(act){
@@ -969,12 +1019,17 @@ function syncNames(){
   document.getElementById("nameA").value=state.players.A.name;
   document.getElementById("nameB").value=state.players.B.name;
 }
-if(decodeHash()){ try{ history.replaceState(null,"", location.href); }catch(_){} } // оставляем хэш, но не плодим историю
+var startedFromHash = !!decodeHash();
+if(startedFromHash){ try{ history.replaceState(null,"", location.href); }catch(_){} } // оставляем хэш, но не плодим историю
 syncNames();
 renderTabs();
 renderHint();
 renderBoard();
 renderCloudStatus();
+if(!startedFromHash){
+  loadCloudState({auto:true, silent:true});
+  setInterval(function(){ loadCloudState({auto:true, silent:true}); }, AUTO_CLOUD_PULL_MS);
+}
 </script>
 </body>
 </html>
